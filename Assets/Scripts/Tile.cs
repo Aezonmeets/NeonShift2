@@ -24,25 +24,22 @@ public class Tile : MonoBehaviour
 
     void BuildVisuals()
     {
-        // Make a simple 1x1 white sprite, colour it, and scale it in world units
         body = gameObject.AddComponent<SpriteRenderer>();
-        body.sprite       = MakePixel();
-        body.color        = col;
-        body.sortingOrder = 5;   // on top of everything
-        body.material     = new Material(Shader.Find("Sprites/Default"));
-
-        // World-space size: 1.6 wide, 0.3 tall (no child scale confusion)
-        transform.localScale = new Vector3(1.6f, 0.3f, 1f);
+        body.sprite = MakeBox();
+        body.color  = col;
+        body.sortingOrder = 10;
+        body.material = new Material(Shader.Find("Sprites/Default"));
+        transform.localScale = new Vector3(1.8f, 0.35f, 1f);
     }
 
-    // Single white pixel sprite — simplest possible, guaranteed visible
-    static Sprite MakePixel()
+    static Sprite MakeBox()
     {
-        var tex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+        var tex = new Texture2D(4, 4, TextureFormat.RGBA32, false);
         tex.filterMode = FilterMode.Point;
-        tex.SetPixel(0, 0, Color.white);
-        tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1f);
+        var px = new Color[16];
+        for (int i = 0; i < 16; i++) px[i] = Color.white;
+        tex.SetPixels(px); tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, 4, 4), new Vector2(0.5f, 0.5f), 4f);
     }
 
     void Update()
@@ -54,18 +51,24 @@ public class Tile : MonoBehaviour
         // Move along lane direction
         transform.position += (Vector3)(tc.MoveDir() * speed * Time.deltaTime);
 
-        // Rotate to face lane direction
+        // Rotate tile to match track angle
         float target = tc.CurrentAngle;
         float cur    = transform.eulerAngles.z;
         transform.rotation = Quaternion.Euler(0f, 0f, Mathf.LerpAngle(cur, target, Time.deltaTime * 14f));
 
-        // Distance to hit zone
-        Vector3 hp = tc.HitPos(lane);
-        DistToHitLine = Vector3.Distance(transform.position, hp);
+        // Hit detection uses the FIXED receptor position (never the rotated HitPos)
+        // This matches where PlayerController actually draws the key zones
+        var pc = PlayerController.Instance;
+        Vector3 receptorPos = pc != null
+            ? new Vector3(pc.GetLaneX(lane), pc.GetReceptorY(), 0f)
+            : tc.HitPos(lane);
 
-        // Auto-miss once tile passes hit zone
-        Vector2 toHit = (Vector2)hp - (Vector2)transform.position;
-        if (Vector2.Dot(tc.MoveDir(), toHit) < -2.5f) Miss();
+        DistToHitLine = Vector3.Distance(transform.position, receptorPos);
+
+        // Auto-miss: tile has passed 2.5 units beyond the receptor bar
+        Vector2 toHit = (Vector2)receptorPos - (Vector2)transform.position;
+        float   dot   = Vector2.Dot(tc.MoveDir(), toHit);
+        if (dot < -2.5f) Miss();
     }
 
     public void Miss()
@@ -75,7 +78,7 @@ public class Tile : MonoBehaviour
         GameManager.Instance?.RegisterHit(HitResult.Miss, transform.position);
         TileSpawner.Instance?.RemoveTile(this);
         PlayerController.Instance?.UnregisterTile(this);
-        StartCoroutine(FadeOut(0.22f));
+        StartCoroutine(FadeOut(0.25f));
     }
 
     public void Hit(HitResult result)
@@ -94,8 +97,7 @@ public class Tile : MonoBehaviour
 
     IEnumerator HitAnim(Color fx)
     {
-        float t = 0f;
-        Vector3 bs = transform.localScale;
+        float t = 0f; Vector3 bs = transform.localScale;
         while (t < 0.2f)
         {
             t += Time.deltaTime; float p = t / 0.2f;
