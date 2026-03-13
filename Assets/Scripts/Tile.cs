@@ -100,6 +100,10 @@ public class Tile : MonoBehaviour
     void Update()
     {
         if (IsHit || IsMissed) return;
+
+        // ── NEW: Stop moving if the game is over or paused ──
+        if (GameManager.Instance != null && !GameManager.Instance.IsGameActive()) return;
+
         var tc = TrackController.Instance;
         if (!tc) return;
 
@@ -175,7 +179,7 @@ public class Tile : MonoBehaviour
             if (remainingLength <= 0f)
             {
                 holdComplete = true;
-                // ── ADDED: Give the final Perfect score payout for holding all the way! ──
+                // Give the final Perfect score payout for holding all the way!
                 GameManager.Instance?.RegisterHit(HitResult.Perfect, transform.position);
                 Hit(HitResult.Perfect);
             }
@@ -213,7 +217,7 @@ public class Tile : MonoBehaviour
         if (!IsBeingHeld) return;
         IsBeingHeld = false;
 
-        // ── CHANGED: If they let go early, it's a "Good" hit instead of a "Miss"! ──
+        // If they let go early, it's a "Good" hit instead of a "Miss"!
         if (!holdComplete)
         {
             GameManager.Instance?.RegisterHit(HitResult.Good, transform.position);
