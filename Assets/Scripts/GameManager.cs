@@ -16,11 +16,9 @@ public class GameManager : MonoBehaviour
     [Tooltip("Increase this to make the Game Over screen neon colors glow brighter!")]
     public float glowIntensity = 2.5f;
 
-
     int score, combo, maxCombo, total, hits;
     float hp = 100f;
     bool alive, paused;
-
 
     // HUD
     TextMeshProUGUI scoreTxt, comboTxt, accTxt, hpTxt, resultTxt;
@@ -29,7 +27,6 @@ public class GameManager : MonoBehaviour
     TextMeshProUGUI goScore, goAcc, goCombo;
     GameObject goPanel, pausePanel, lbPanel;
     Coroutine resultCo;
-
 
     // Music
     AudioSource music;
@@ -42,12 +39,11 @@ public class GameManager : MonoBehaviour
     static readonly Color CYAN = new Color(0f, .9f, 1f);
     static readonly Color MAGENTA = new Color(1f, .15f, .75f);
 
-    // Mode colours for buttons
     static readonly Color[] ModeColors = {
-        new Color(.1f,1f,.4f),    // Easy - green
-        new Color(1f,.85f,.1f),   // Medium - yellow
-        new Color(1f,.35f,.1f),   // Hard - orange
-        new Color(.8f,.1f,1f),    // Endless - purple
+        new Color(.1f,1f,.4f),
+        new Color(1f,.85f,.1f),
+        new Color(1f,.35f,.1f),
+        new Color(.8f,.1f,1f),
     };
 
     void Awake()
@@ -56,14 +52,14 @@ public class GameManager : MonoBehaviour
         Instance = this;
         Camera.main.backgroundColor = new Color(.025f, .025f, .09f);
         Camera.main.clearFlags = CameraClearFlags.SolidColor;
-        Camera.main.allowHDR = true; // REQUIRED FOR GLOW
+        Camera.main.allowHDR = true;
 
         foreach (var c in FindObjectsByType<Canvas>(FindObjectsSortMode.None))
             if (c.gameObject != gameObject) Destroy(c.gameObject);
 
         sfx = gameObject.AddComponent<AudioSource>(); sfx.volume = .55f;
         music = gameObject.AddComponent<AudioSource>();
-        music.loop = true; music.volume = .7f;
+        music.loop = false; music.volume = .7f;
         sPerfect = Beep(880f, .08f); sGood = Beep(660f, .06f); sMiss = Beep(110f, .13f, true);
         BuildUI();
     }
@@ -80,26 +76,100 @@ public class GameManager : MonoBehaviour
 
     Color GetHDR(Color c) => new Color(c.r * glowIntensity, c.g * glowIntensity, c.b * glowIntensity, 1f);
 
+    AudioClip[] playlist;
+    int playlistIndex;
+
     void TryPlayMusic()
     {
-        string clipName = "Music/" + currentMode.ToString();
-        var clip = Resources.Load<AudioClip>(clipName);
-        if (clip != null) { music.clip = clip; music.Play(); }
-        else Debug.Log($"[Music] No clip found at Resources/{clipName} — add your audio files there!");
+        playlist = LoadPlaylist(currentMode.ToString());
+        playlistIndex = 0;
+
+        if (playlist == null || playlist.Length == 0)
+        {
+            Debug.Log($"[Music] No clips found in Resources/Music/{currentMode} — add audio files there!");
+            return;
+        }
+
+        ShufflePlaylist();
+        music.loop = false;
+        PlayTrack(playlistIndex);
+    }
+
+    AudioClip[] LoadPlaylist(string modeName)
+    {
+        var clips = Resources.LoadAll<AudioClip>("Music/" + modeName);
+        if (clips != null && clips.Length > 0) return clips;
+
+        var single = Resources.Load<AudioClip>("Music/" + modeName);
+        if (single != null) return new[] { single };
+
+        return null;
+    }
+
+    void PlayTrack(int index)
+    {
+        if (playlist == null || index >= playlist.Length) return;
+        music.clip = playlist[index];
+        music.Play();
+        Debug.Log($"[Music] Playing track {index + 1}/{playlist.Length}: {playlist[index].name}");
+    }
+
+    void ShufflePlaylist()
+    {
+        for (int i = playlist.Length - 1; i > 0; i--)
+        {
+            int j = Random.Range(0, i + 1);
+            var tmp = playlist[i]; playlist[i] = playlist[j]; playlist[j] = tmp;
+        }
     }
 
     void Update()
     {
         if (!alive) return;
         if (Input.GetKeyDown(KeyCode.Escape)) TogglePause();
+
         if (currentMode == GameMode.Endless)
         {
-            float t = Time.timeSinceLevelLoad;
-            TileSpawner.Instance.spawnInterval = Mathf.Max(.38f, 1.1f - t * .005f);
-            TileSpawner.Instance.tileSpeed = Mathf.Min(18f, 5f + t * .02f);
-            TrackController.Instance.rotationInterval = Mathf.Max(3f, 8f - t * .012f);
+            UpdateEndless();
         }
+        else
+        {
+            if (music.clip != null && !music.isPlaying && Time.timeSinceLevelLoad > 2f)
+            {
+                playlistIndex++;
+                if (playlist != null && playlistIndex < playlist.Length)
+                    PlayTrack(playlistIndex);
+                else
+                    GameOver();
+            }
+        }
+
         RefreshHUD();
+    }
+
+    void UpdateEndless()
+    {
+        float t = Time.timeSinceLevelLoad;
+
+        float cycleLen = 55f;
+        float cyclePos = t % cycleLen;
+        float intensity;
+
+        if (cyclePos < 30f)
+            intensity = cyclePos / 30f;
+        else if (cyclePos < 40f)
+            intensity = 1f;
+        else
+            intensity = 1f - (cyclePos - 40f) / 15f;
+
+        intensity = Mathf.Clamp01(intensity);
+
+        float longTermBoost = Mathf.Min(4f, t * 0.008f);
+        TileSpawner.Instance.tileSpeed = 5f + intensity * 11f + longTermBoost;
+        TileSpawner.Instance.spawnInterval = Mathf.Max(0.35f, 1.2f - intensity * 0.85f);
+        TrackController.Instance.rotationInterval = Mathf.Max(2.5f, 9f - intensity * 6f);
+
+        TileSpawner.Instance.bpm = 90f + intensity * 60f + longTermBoost * 5f;
     }
 
     void ApplyMode()
@@ -121,17 +191,50 @@ public class GameManager : MonoBehaviour
         switch (r)
         {
             case HitResult.Perfect:
-                hits++; combo++; score += 300 + combo * 12; lbl = "PERFECT!"; col = CP; sfx.PlayOneShot(sPerfect); break;
+                hits++;
+                combo++; // PERFECT increases combo
+                score += 300 + combo * 12;
+                lbl = "PERFECT!";
+                col = CP;
+                sfx.PlayOneShot(sPerfect);
+                break;
             case HitResult.Good:
-                hits++; combo++; score += 100 + combo * 4; lbl = "GOOD"; col = CG; sfx.PlayOneShot(sGood); break;
-            default:
-                combo = 0; hp = Mathf.Max(0f, hp - 10f); lbl = "MISS"; col = CM; sfx.PlayOneShot(sMiss);
+                hits++;
+                combo = 0; // GOOD now resets combo (Perfect-only rule)
+                score += 100; // Standard score, no multiplier
+                lbl = "GOOD";
+                col = CG;
+                sfx.PlayOneShot(sGood);
+                break;
+            default: // MISS
+                combo = 0;
+                hp = Mathf.Max(0f, hp - 10f); // Normal miss is -10 hp
+                lbl = "MISS";
+                col = CM;
+                sfx.PlayOneShot(sMiss);
                 CameraShake.Instance?.Shake(.2f, .1f);
                 if (hp <= 0f) { GameOver(); return; }
                 break;
         }
         if (combo > maxCombo) maxCombo = combo;
         ShowResult(lbl, col);
+    }
+
+    public void ApplySpamPenalty()
+    {
+        if (!alive) return;
+
+        combo = 0;
+        hp = Mathf.Max(0f, hp - 5f);
+
+        sfx.PlayOneShot(sMiss);
+        CameraShake.Instance?.Shake(.1f, .05f);
+        ShowResult("MISS", CM);
+
+        if (hp <= 0f)
+        {
+            GameOver();
+        }
     }
 
     void GameOver()
@@ -141,7 +244,6 @@ public class GameManager : MonoBehaviour
         TrackController.Instance.StopRotating();
         float acc = total > 0 ? (float)hits / total * 100f : 0f;
 
-        // This is where the game grabs the exact player stats!
         goScore.text = score.ToString("N0");
         goAcc.text = $"{acc:F1}%";
         goCombo.text = "x" + maxCombo;
@@ -149,8 +251,7 @@ public class GameManager : MonoBehaviour
         goPanel.SetActive(true);
         HighScoreManager.Instance?.TrySubmitScore(currentMode, score);
         float accVal = total > 0 ? (float)hits / total * 100f : 0f;
-        LeaderboardManager.Instance?.TrySubmit(currentMode.ToString(), score, accVal);
-        // Show leaderboard in the game over panel
+        LeaderboardManager.Instance?.TrySubmit(currentMode.ToString(), score, maxCombo, accVal);
         if (lbPanel != null) LeaderboardManager.Instance?.BuildLeaderboardUI(lbPanel, currentMode.ToString());
     }
 
@@ -189,13 +290,11 @@ public class GameManager : MonoBehaviour
         resultTxt.text = "";
     }
 
-    // ── UI BUILD ───────────────────────────────────
     void BuildUI()
     {
         var cgo = new GameObject("_Canvas");
         var cv = cgo.AddComponent<Canvas>();
 
-        // Setup camera for Bloom Post Processing
         cv.renderMode = RenderMode.ScreenSpaceCamera;
         cv.worldCamera = Camera.main;
         cv.planeDistance = 5f;
@@ -205,7 +304,6 @@ public class GameManager : MonoBehaviour
         sc.referenceResolution = new Vector2(1280, 720); sc.matchWidthOrHeight = 0.5f;
         cgo.AddComponent<GraphicRaycaster>();
 
-        // ── TOP HUD BAR ────────────────────────────────────────────────
         scoreTxt = T(cgo, "0", 52, new Vector2(24, -20), A(0, 1), A(0, 1), TextAlignmentOptions.TopLeft);
         scoreTxt.color = Color.white; scoreTxt.fontStyle = FontStyles.Bold;
 
@@ -229,68 +327,55 @@ public class GameManager : MonoBehaviour
         T(cgo, "ESC = PAUSE", 18, new Vector2(-16, 16), A(1, 0), A(1, 0), TextAlignmentOptions.BottomRight)
             .color = new Color(.4f, .7f, 1f, .3f);
 
-        // ── GAME OVER PANEL (Matches the glowing Figma reference) ─────────────
-        goPanel = Panel(cgo, new Color(.02f, .02f, .05f, .95f)); // Dark background overlay
+        goPanel = Panel(cgo, new Color(.02f, .02f, .05f, .95f));
 
-        // "GAME OVER" Title - Red, Bold, Italic, Glowing
         var goTitle = T(goPanel, "GAME OVER", 88, new Vector2(0, 200), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         goTitle.color = GetHDR(new Color(1f, .15f, .25f)); goTitle.fontStyle = FontStyles.Bold | FontStyles.Italic;
 
-        // Stats Box Background Container
         var statsBox = new GameObject("StatsBox"); statsBox.transform.SetParent(goPanel.transform, false);
         var sBoxRt = statsBox.AddComponent<RectTransform>(); sBoxRt.anchorMin = sBoxRt.anchorMax = A(0.5f, 0.5f);
         sBoxRt.anchoredPosition = new Vector2(0, 30); sBoxRt.sizeDelta = new Vector2(750, 140);
         statsBox.AddComponent<Image>().color = new Color(0.04f, 0.05f, 0.08f, 0.9f);
 
-        // Stats Box Glowing Borders
-        NeonLine(statsBox, new Vector2(-375, 70), new Vector2(375, 70), GetHDR(CYAN), 1f); // Top
-        NeonLine(statsBox, new Vector2(-375, -70), new Vector2(375, -70), GetHDR(CYAN), 1f); // Bottom
+        NeonLine(statsBox, new Vector2(-375, 70), new Vector2(375, 70), GetHDR(CYAN), 1f);
+        NeonLine(statsBox, new Vector2(-375, -70), new Vector2(375, -70), GetHDR(CYAN), 1f);
 
-        // Divider Lines Inside Box
         NeonLine(statsBox, new Vector2(-125, 50), new Vector2(-125, -50), GetHDR(CYAN), 0.5f);
         NeonLine(statsBox, new Vector2(125, 50), new Vector2(125, -50), GetHDR(CYAN), 0.5f);
 
-        // 1. SCORE
         var sLbl = T(statsBox, "SCORE", 18, new Vector2(-250, 25), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         sLbl.color = Color.white; sLbl.fontStyle = FontStyles.Bold;
         goScore = T(statsBox, "0", 56, new Vector2(-250, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        goScore.color = GetHDR(CP); goScore.fontStyle = FontStyles.Bold; // Glowing Yellow
+        goScore.color = GetHDR(CP); goScore.fontStyle = FontStyles.Bold;
 
-        // 2. ACCURACY
         var aLbl = T(statsBox, "ACCURACY", 18, new Vector2(0, 25), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         aLbl.color = Color.white; aLbl.fontStyle = FontStyles.Bold;
         goAcc = T(statsBox, "0.0%", 56, new Vector2(0, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        goAcc.color = GetHDR(CG); goAcc.fontStyle = FontStyles.Bold; // Glowing Green
+        goAcc.color = GetHDR(CG); goAcc.fontStyle = FontStyles.Bold;
 
-        // 3. MAX COMBO
+        // ── FIXED TYPO HERE (cLBl -> cLbl) ──
         var cLbl = T(statsBox, "MAX COMBO", 18, new Vector2(250, 25), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         cLbl.color = Color.white; cLbl.fontStyle = FontStyles.Bold;
         goCombo = T(statsBox, "x0", 56, new Vector2(250, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        goCombo.color = GetHDR(CYAN); goCombo.fontStyle = FontStyles.Bold; // Glowing Cyan
+        goCombo.color = GetHDR(CYAN); goCombo.fontStyle = FontStyles.Bold;
 
-        // Buttons — PLAY AGAIN (cyan border) | MENU (magenta border)
-        // Buttons moved UP to make room for leaderboard below
         NeonBtn(goPanel, "PLAY AGAIN", CYAN, new Vector2(-160, -95), () => Restart());
         NeonBtn(goPanel, "MENU", new Color(1f, 0.2f, 0.4f), new Vector2(160, -95), () => MainMenu());
 
-        // Divider line between buttons and leaderboard
         var lbDiv = new GameObject("LBDiv"); lbDiv.transform.SetParent(goPanel.transform, false);
         var ldRT = lbDiv.AddComponent<RectTransform>(); ldRT.anchorMin = new Vector2(.5f, .5f); ldRT.anchorMax = new Vector2(.5f, .5f);
         ldRT.anchoredPosition = new Vector2(0, -140); ldRT.sizeDelta = new Vector2(680, 1.5f);
         lbDiv.AddComponent<UnityEngine.UI.Image>().color = new Color(CYAN.r, CYAN.g, CYAN.b, .3f);
 
-        // ── LEADERBOARD PANEL — positioned in lower half, BELOW buttons ──
         lbPanel = new GameObject("LBPanel"); lbPanel.transform.SetParent(goPanel.transform, false);
         var lbRT = lbPanel.AddComponent<RectTransform>();
-        // Anchored to lower half: Y from -155 to -360 in anchored coords
         lbRT.anchorMin = new Vector2(.5f, .5f); lbRT.anchorMax = new Vector2(.5f, .5f);
         lbRT.anchoredPosition = new Vector2(0, -255);
         lbRT.sizeDelta = new Vector2(720, 220);
-        var lbBG = lbPanel.AddComponent<UnityEngine.UI.Image>(); lbBG.color = new Color(.01f, .02f, .05f, .0f); // transparent bg
+        var lbBG = lbPanel.AddComponent<UnityEngine.UI.Image>(); lbBG.color = new Color(.01f, .02f, .05f, .0f);
 
         goPanel.SetActive(false);
 
-        // ── PAUSE PANEL ─────────────────────
         pausePanel = Panel(cgo, new Color(.01f, .02f, .08f, .93f));
         NeonLine(pausePanel, new Vector2(-640, 358), new Vector2(640, 358), GetHDR(CYAN), 1f);
         var pauseTitle = T(pausePanel, "PAUSED", 90, new Vector2(0, 210), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
@@ -323,7 +408,6 @@ public class GameManager : MonoBehaviour
     IEnumerator KeepPauseScore(TextMeshProUGUI t) { while (true) { if (t) t.text = score.ToString("N0"); yield return new WaitForSecondsRealtime(.1f); } }
     IEnumerator KeepPauseCombo(TextMeshProUGUI t) { while (true) { if (t) t.text = "x" + maxCombo; yield return new WaitForSecondsRealtime(.1f); } }
 
-    // ── HELPERS ───────────────────────────────────────────────────────────
     static Vector2 A(float x, float y) => new Vector2(x, y);
 
     TextMeshProUGUI T(GameObject p, string txt, int sz, Vector2 pos, Vector2 aMin, Vector2 aMax, TextAlignmentOptions al)
@@ -357,14 +441,12 @@ public class GameManager : MonoBehaviour
     {
         var go = new GameObject("_B"); go.transform.SetParent(p.transform, false);
         var rt = go.AddComponent<RectTransform>(); rt.anchorMin = rt.anchorMax = A(.5f, .5f);
-        rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(250, 54); // Made slightly wider
+        rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(250, 54);
         var img = go.AddComponent<Image>(); img.color = new Color(col.r * .08f, col.g * .08f, col.b * .08f, .9f);
 
-        // HDR Glowing outline
         AddBorder(go, GetHDR(col), 1f);
         var btn = go.AddComponent<Button>(); btn.targetGraphic = img; btn.onClick.AddListener(cb);
 
-        // HDR Glowing text
         var tgo = Label(go, lbl, 26, GetHDR(col));
     }
 
@@ -389,7 +471,7 @@ public class GameManager : MonoBehaviour
         var rt = ov.AddComponent<RectTransform>(); rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
         rt.offsetMin = new Vector2(-1, -1); rt.offsetMax = new Vector2(1, 1);
         var img = ov.AddComponent<Image>(); img.color = Color.clear;
-        var O = go.AddComponent<Outline>(); O.effectColor = new Color(col.r, col.g, col.b, alpha); O.effectDistance = new Vector2(2, -2); // Thicker outline
+        var O = go.AddComponent<Outline>(); O.effectColor = new Color(col.r, col.g, col.b, alpha); O.effectDistance = new Vector2(2, -2);
     }
 
     GameObject Label(GameObject p, string txt, int sz, Color col)

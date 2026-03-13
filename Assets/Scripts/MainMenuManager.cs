@@ -5,9 +5,9 @@ using UnityEngine.SceneManagement;
 
 public class MainMenuManager : MonoBehaviour
 {
-    static readonly Color CYAN    = new Color(0f, 0.92f, 1f);
+    static readonly Color CYAN = new Color(0f, 0.92f, 1f);
     static readonly Color MAGENTA = new Color(1f, 0.15f, 0.75f);
-    static readonly Color DARK_BG = new Color(0.04f, 0.06f, 0.10f); 
+    static readonly Color DARK_BG = new Color(0.04f, 0.06f, 0.10f);
 
     static readonly Color[] ModeBorderColors = {
         new Color(0.1f, 1f, 0.4f),    // Easy - green
@@ -15,7 +15,7 @@ public class MainMenuManager : MonoBehaviour
         new Color(1f, 0.45f, 0.1f),   // Hard - orange-red
         new Color(0.9f, 0.1f, 0.3f),  // Endless - red/pink
     };
-    
+
     static readonly string[] ModeLabels = { "EASY", "MEDIUM", "HARD", "ENDLESS" };
 
     [Header("Assign Your Icons Here!")]
@@ -35,44 +35,44 @@ public class MainMenuManager : MonoBehaviour
     {
         Camera.main.backgroundColor = DARK_BG;
         Camera.main.clearFlags = CameraClearFlags.SolidColor;
-        
+
         music = gameObject.AddComponent<AudioSource>();
         music.loop = true; music.volume = 0.55f;
         var clip = Resources.Load<AudioClip>("Music/Menu");
         if (clip) { music.clip = clip; music.Play(); }
-        
+
         Build();
     }
 
     void Build()
     {
         var cgo = new GameObject("Canvas");
-        var cv  = cgo.AddComponent<Canvas>(); 
+        var cv = cgo.AddComponent<Canvas>();
         cv.renderMode = RenderMode.ScreenSpaceOverlay;
-        
-        var sc  = cgo.AddComponent<CanvasScaler>(); 
+
+        var sc = cgo.AddComponent<CanvasScaler>();
         sc.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        sc.referenceResolution = new Vector2(1280, 720); 
+        sc.referenceResolution = new Vector2(1280, 720);
         sc.matchWidthOrHeight = 0.5f;
         cgo.AddComponent<GraphicRaycaster>();
 
         // ── DARK BACKGROUND ───────────────────────────────────────────────
         var bg = new GameObject("BG"); bg.transform.SetParent(cgo.transform, false);
-        var bgRT = bg.AddComponent<RectTransform>(); 
-        bgRT.anchorMin = Vector2.zero; bgRT.anchorMax = Vector2.one; 
+        var bgRT = bg.AddComponent<RectTransform>();
+        bgRT.anchorMin = Vector2.zero; bgRT.anchorMax = Vector2.one;
         bgRT.offsetMin = bgRT.offsetMax = Vector2.zero;
         bg.AddComponent<Image>().color = DARK_BG;
 
         // ── TOP NAV BAR ───────────────────────────────────────────────────
-        HBar(cgo, new Color(CYAN.r, CYAN.g, CYAN.b, 0.3f), A(0, 1), A(1, 1), 0, -45, 1f); 
-        
+        HBar(cgo, new Color(CYAN.r, CYAN.g, CYAN.b, 0.3f), A(0, 1), A(1, 1), 0, -45, 1f);
+
         var topLogo = T(cgo, "↺ NEON SHIFT", 16, new Vector2(30, -22), A(0, 1), A(0, 1), TextAlignmentOptions.Left);
         topLogo.color = CYAN; topLogo.fontStyle = FontStyles.Bold;
 
         // Top Right Utility Buttons with REAL Images
         Sprite[] topSprites = { settingsIcon, volumeIcon, profileIcon };
         float rightStart = -130f;
-        for(int i = 0; i < 3; i++)
+        for (int i = 0; i < 3; i++)
         {
             var iconBtn = new GameObject("TopIcon_" + i);
             iconBtn.transform.SetParent(cgo.transform, false);
@@ -80,18 +80,18 @@ public class MainMenuManager : MonoBehaviour
             irt.anchorMin = irt.anchorMax = A(1, 1);
             irt.anchoredPosition = new Vector2(rightStart + (i * 45), -22);
             irt.sizeDelta = new Vector2(35, 35);
-            
+
             var iImg = iconBtn.AddComponent<Image>();
-            iImg.color = new Color(0.1f, 0.15f, 0.2f, 0.8f); 
+            iImg.color = new Color(0.1f, 0.15f, 0.2f, 0.8f);
             iconBtn.AddComponent<Outline>().effectColor = new Color(CYAN.r, CYAN.g, CYAN.b, 0.4f);
-            
+
             // Image inside the box
             var innerImgObj = new GameObject("Sprite");
             innerImgObj.transform.SetParent(iconBtn.transform, false);
             var innerRt = innerImgObj.AddComponent<RectTransform>();
             innerRt.anchorMin = A(0.2f, 0.2f); innerRt.anchorMax = A(0.8f, 0.8f);
             innerRt.offsetMin = innerRt.offsetMax = Vector2.zero;
-            
+
             var actualImage = innerImgObj.AddComponent<Image>();
             actualImage.sprite = topSprites[i]; // Assigns your dragged sprite
             actualImage.color = CYAN;
@@ -100,33 +100,37 @@ public class MainMenuManager : MonoBehaviour
 
         // ── TITLE ─────────────────────────────────────────────────────────
         float titleY = 160f;
-        var t1 = T(cgo, "NEON", 95, new Vector2(-150, titleY), A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Right);
+        var t1 = T(cgo, "NEON", 95, new Vector2(-150, titleY), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Right);
         t1.color = MAGENTA; t1.fontStyle = FontStyles.Bold;
-        
-        var t2 = T(cgo, "SHIFT", 95, new Vector2(160, titleY), A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Left);
+
+        var t2 = T(cgo, "SHIFT", 95, new Vector2(160, titleY), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Left);
         t2.color = CYAN; t2.fontStyle = FontStyles.Bold;
 
-        var sub = T(cgo, "4-LANE RHYTHM GAME", 18, new Vector2(0, titleY - 70), A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Center);
+        var sub = T(cgo, "4-LANE RHYTHM GAME", 18, new Vector2(0, titleY - 70), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         sub.color = CYAN; sub.fontStyle = FontStyles.Bold;
-        sub.characterSpacing = 5f; 
-        
-        var sub2 = T(cgo, "Tiles rotate! Stay sharp.", 14, new Vector2(0, titleY - 95), A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Center);
+        sub.characterSpacing = 5f;
+
+        var sub2 = T(cgo, "Tiles rotate! Stay sharp.", 14, new Vector2(0, titleY - 95), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         sub2.color = new Color(0.6f, 0.7f, 0.8f, 0.75f);
 
         // ── BUTTONS ───────────────────────────────────────────────────────
         Sprite[] modeSprites = { easyIcon, mediumIcon, hardIcon, endlessIcon };
         float startY = -10f, gap = -65f;
-        
+
         for (int i = 0; i < 4; i++)
         {
             int mi = i;
             ModeButton(cgo, ModeLabels[i], modeSprites[i], ModeBorderColors[i],
                 new Vector2(0, startY + gap * i), () => { PlayerPrefs.SetInt("SelectedMode", mi); SceneManager.LoadScene("GameScene"); });
         }
-        
+
+        // Leaderboard Button
+        ModeButton(cgo, "LEADERBOARD", null, new Color(0.4f, 0.7f, 1f),
+            new Vector2(0, startY + gap * 4 - 15), () => LeaderboardManager.OpenLeaderboardScene("MainMenu"));
+
         // Quit Button
         ModeButton(cgo, "QUIT GAME", quitIcon, new Color(0.4f, 0.45f, 0.55f),
-            new Vector2(0, startY + gap * 4 - 15), () => Application.Quit());
+            new Vector2(0, startY + gap * 5 - 15), () => Application.Quit());
     }
 
     // ── BUTTON GENERATOR ──────────────────────────────────────────────
@@ -136,7 +140,7 @@ public class MainMenuManager : MonoBehaviour
         go.transform.SetParent(p.transform, false);
         var rt = go.AddComponent<RectTransform>();
         rt.anchorMin = rt.anchorMax = A(.5f, .5f);
-        rt.anchoredPosition = pos; 
+        rt.anchoredPosition = pos;
         rt.sizeDelta = new Vector2(380, 50);
 
         var img = go.AddComponent<Image>();
@@ -157,7 +161,7 @@ public class MainMenuManager : MonoBehaviour
         trt.offsetMin = new Vector2(25, 0); trt.offsetMax = new Vector2(-20, 0);
         var tmp = tgo.AddComponent<TextMeshProUGUI>();
         tmp.text = lbl; tmp.fontSize = 18; tmp.fontStyle = FontStyles.Bold;
-        tmp.alignment = TextAlignmentOptions.Left; 
+        tmp.alignment = TextAlignmentOptions.Left;
         tmp.characterSpacing = 3f;
         tmp.color = Color.white;
 
@@ -177,9 +181,9 @@ public class MainMenuManager : MonoBehaviour
 
         var btn = go.AddComponent<Button>(); btn.targetGraphic = img; btn.onClick.AddListener(cb);
 
-        var cb2 = btn.colors; 
+        var cb2 = btn.colors;
         cb2.highlightedColor = new Color(col.r * 0.2f, col.g * 0.2f, col.b * 0.2f, 0.95f);
-        cb2.pressedColor     = new Color(col.r * 0.3f, col.g * 0.3f, col.b * 0.3f, 0.95f); 
+        cb2.pressedColor = new Color(col.r * 0.3f, col.g * 0.3f, col.b * 0.3f, 0.95f);
         btn.colors = cb2;
     }
 
@@ -195,10 +199,10 @@ public class MainMenuManager : MonoBehaviour
     TextMeshProUGUI T(GameObject p, string txt, int sz, Vector2 pos, Vector2 aMin, Vector2 aMax, TextAlignmentOptions al)
     {
         var go = new GameObject("_T"); go.transform.SetParent(p.transform, false);
-        var rt = go.AddComponent<RectTransform>(); 
+        var rt = go.AddComponent<RectTransform>();
         rt.anchorMin = aMin; rt.anchorMax = aMax;
         rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(900, 130);
-        var t = go.AddComponent<TextMeshProUGUI>(); 
+        var t = go.AddComponent<TextMeshProUGUI>();
         t.text = txt; t.fontSize = sz; t.alignment = al; t.color = Color.white;
         return t;
     }

@@ -87,7 +87,6 @@ public class PlayerController : MonoBehaviour
         zoneBGs = new SpriteRenderer[count];
         zoneLabels = new TextMeshPro[count];
 
-        // ── WIDTH FIX: 94% of spacing guarantees they fit cleanly inside the lane borders ──
         float boxW = spacing * 0.94f;
         float boxH = 0.85f;
 
@@ -96,7 +95,7 @@ public class PlayerController : MonoBehaviour
         backplateRoot.transform.SetParent(transform);
         var bpSR = backplateRoot.AddComponent<SpriteRenderer>();
         bpSR.sprite = MakeRoundedSolid();
-        bpSR.drawMode = SpriteDrawMode.Sliced; // Enables 9-slicing
+        bpSR.drawMode = SpriteDrawMode.Sliced;
         bpSR.color = new Color(0.08f, 0.12f, 0.16f, 0.85f);
         bpSR.sortingOrder = 18;
         bpSR.material = new Material(Shader.Find("Sprites/Default"));
@@ -114,7 +113,6 @@ public class PlayerController : MonoBehaviour
             root.transform.SetParent(transform);
             zoneRoots[i] = root;
 
-            // Key Tint Background
             var bgGO = new GameObject("BG"); bgGO.transform.SetParent(root.transform, false);
             var bgSR = bgGO.AddComponent<SpriteRenderer>();
             bgSR.sprite = roundedSolidSprite;
@@ -125,7 +123,6 @@ public class PlayerController : MonoBehaviour
             bgSR.color = new Color(col.r, col.g, col.b, 0.1f);
             zoneBGs[i] = bgSR;
 
-            // Colored Border Box
             var ringGO = new GameObject("Border"); ringGO.transform.SetParent(root.transform, false);
             var ringSR = ringGO.AddComponent<SpriteRenderer>();
             ringSR.sprite = roundedBorderSprite;
@@ -136,7 +133,6 @@ public class PlayerController : MonoBehaviour
             ringSR.color = new Color(col.r * 0.8f, col.g * 0.8f, col.b * 0.8f, 0.95f);
             zoneRings[i] = ringSR;
 
-            // Optional Under-Glow
             var glowGO = new GameObject("Glow"); glowGO.transform.SetParent(root.transform, false);
             glowGO.transform.localPosition = new Vector3(0f, -boxH * 0.4f, 0f);
             var glowSR = glowGO.AddComponent<SpriteRenderer>();
@@ -147,7 +143,6 @@ public class PlayerController : MonoBehaviour
             glowGO.transform.localScale = new Vector3(boxW * 0.8f, boxH * 0.6f, 1f);
             zoneGlows[i] = glowSR;
 
-            // Text Label
             var lblGO = new GameObject("Lbl"); lblGO.transform.SetParent(root.transform, false);
             lblGO.transform.localPosition = new Vector3(0f, 0f, -0.1f);
             var tmp = lblGO.AddComponent<TextMeshPro>();
@@ -166,14 +161,12 @@ public class PlayerController : MonoBehaviour
         if (!GameManager.Instance || !GameManager.Instance.IsGameActive()) return;
         var tc = TrackController.Instance;
 
-        // Position Global Backplate in the center
         Vector3 centerPos = Vector3.zero;
         for (int i = 0; i < zoneRoots.Length; i++) centerPos += tc.HitPos(i);
         centerPos /= zoneRoots.Length;
         backplateRoot.transform.position = centerPos;
         backplateRoot.transform.rotation = Quaternion.Euler(0f, 0f, tc.CurrentAngle);
 
-        // Update Keys
         for (int i = 0; i < zoneRoots.Length; i++)
         {
             zoneRoots[i].transform.position = tc.HitPos(i);
@@ -187,7 +180,6 @@ public class PlayerController : MonoBehaviour
             if (zoneGlows[i]) zoneGlows[i].color = new Color(col.r, col.g, col.b, 0.05f + Mathf.Sin(t) * 0.02f);
         }
 
-        // Input
         for (int i = 0; i < activeKeys.Length; i++)
         {
             if (Input.GetKeyDown(activeKeys[i]))
@@ -209,23 +201,37 @@ public class PlayerController : MonoBehaviour
     void TryHit(int lane)
     {
         Tile best = null; float bestDist = float.MaxValue;
+
+        // 1. Find the closest tile in this lane
         foreach (var t in tiles)
         {
             if (t == null || t.IsHit || t.IsMissed || t.lane != lane) continue;
             if (t.DistToHitLine < bestDist) { bestDist = t.DistToHitLine; best = t; }
         }
-        if (best == null || bestDist > hitZoneDistance * 1.9f) return;
+
+        // --- SPAM DETECTED ---
+        if (best == null || bestDist > hitZoneDistance * 1.9f)
+        {
+            // FIX: Only trigger the penalty if there are actually tiles spawned in the game!
+            // This prevents you from instantly dying if you test the keys before the song starts.
+            if (GameManager.Instance != null && tiles.Count > 0)
+            {
+                GameManager.Instance.ApplySpamPenalty();
+            }
+            return;
+        }
+
+        // --- TILE HIT DETECTED ---
+        HitResult result = bestDist <= perfectZone ? HitResult.Perfect : HitResult.Good;
 
         if (best.isLong)
         {
-            HitResult result = bestDist <= perfectZone ? HitResult.Perfect : HitResult.Good;
             GameManager.Instance?.RegisterHit(result, best.transform.position);
             best.StartHold();
             heldTile[lane] = best;
         }
         else
         {
-            HitResult result = bestDist <= perfectZone ? HitResult.Perfect : HitResult.Good;
             GameManager.Instance?.RegisterHit(result, best.transform.position);
             best.Hit(result);
         }
@@ -240,13 +246,11 @@ public class PlayerController : MonoBehaviour
         {
             t += Time.deltaTime; float p = t / 0.15f;
             if (zoneRings[i]) zoneRings[i].color = new Color(col.r, col.g, col.b, Mathf.Lerp(1f, 0.85f, p));
-            if (zoneBGs[i]) zoneBGs[i].color = new Color(col.r, col.g, col.b, Mathf.Lerp(0.4f, 0.1f, p)); // Fills with bright color on hit
+            if (zoneBGs[i]) zoneBGs[i].color = new Color(col.r, col.g, col.b, Mathf.Lerp(0.4f, 0.1f, p));
             if (zoneGlows[i]) zoneGlows[i].color = new Color(col.r, col.g, col.b, Mathf.Lerp(0.6f, 0.05f, p));
             yield return null;
         }
     }
-
-    // ── PROCEDURAL 9-SLICED TEXTURES ──
 
     static Sprite MakeRoundedSolid()
     {

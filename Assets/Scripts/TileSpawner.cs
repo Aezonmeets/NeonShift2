@@ -34,10 +34,24 @@ public class TileSpawner : MonoBehaviour
         mode = m;
         switch (m)
         {
-            case GameMode.Easy: spawnInterval = 1.3f; tileSpeed = 5f; bpm = 80f; break;
-            case GameMode.Medium: spawnInterval = 0.9f; tileSpeed = 7f; bpm = 110f; break;
-            case GameMode.Hard: spawnInterval = 0.55f; tileSpeed = 10f; bpm = 140f; break;
-            case GameMode.Endless: spawnInterval = 1.2f; tileSpeed = 5f; bpm = 90f; endlessMode = true; break;
+            // Easy  → "Can't Stop the Feeling" Justin Timberlake (113 BPM)
+            case GameMode.Easy:
+                spawnInterval = 60f / 113f; tileSpeed = 5f; bpm = 113f;
+                break;
+            // Medium → "Uptown Funk" Bruno Mars (115 BPM)
+            case GameMode.Medium:
+                spawnInterval = 60f / 115f; tileSpeed = 7f; bpm = 115f;
+                break;
+            // Hard   → "Runaway Baby" Bruno Mars (176 BPM)
+            // Spawn every 2 beats (half-note) so it's tough but readable
+            case GameMode.Hard:
+                spawnInterval = 60f / 176f * 2f; tileSpeed = 11f; bpm = 176f;
+                break;
+            // Endless → dynamic BPM set by GameManager.UpdateEndless()
+            case GameMode.Endless:
+                spawnInterval = 1.2f; tileSpeed = 5f; bpm = 90f;
+                endlessMode = true;
+                break;
         }
     }
 
@@ -57,7 +71,6 @@ public class TileSpawner : MonoBehaviour
         // Wait until the first beat lands on the receptor
         yield return new WaitForSeconds(Mathf.Max(0.1f, travelTime));
 
-        float beatInterval = 60f / bpm;
         int beatCount = 0;
 
         while (true)
@@ -65,7 +78,8 @@ public class TileSpawner : MonoBehaviour
             SpawnBeat(beatCount);
             beatCount++;
 
-            // Wait exactly one beat before next spawn decision
+            // Recalculate every beat — allows Endless mode to update BPM live
+            float beatInterval = 60f / Mathf.Max(60f, bpm);
             yield return new WaitForSeconds(beatInterval);
         }
     }
@@ -74,30 +88,57 @@ public class TileSpawner : MonoBehaviour
     {
         if (!TrackController.Instance) return;
 
-        int inBar = beat % 4;   // 0=beat1, 1=beat2, 2=beat3, 3=beat4
+        int inBar = beat % 4;
+        int bar = beat / 4;
 
-        // Musical pattern per bar:
-        // Beat 0 (1st): always spawn — downbeat
-        // Beat 1 (2nd): spawn if medium+ or random 30%
-        // Beat 2 (3rd): always spawn — backbeat
-        // Beat 3 (4th): spawn 50% — anticipation / off-beat
+        // ── RHYTHMIC RULES per mode ──────────────────────────────────────────
+        // Easy (113 BPM, Can't Stop the Feeling): every beat is a party beat
+        //   spawn on 1 & 3 always, 2 & 4 at 40%
+        // Medium (115 BPM, Uptown Funk): syncopated — strong on 1, ghost on 2,
+        //   backbeat 3, anticipation before 4
+        // Hard (176 BPM, Runaway Baby): rockabilly — driving on 1&3 (kick),
+        //   snare hits on 2&4, 16th-note fills every 2 bars
+        // Endless: purely density-driven
 
-        bool spawnThis = inBar == 0 || inBar == 2
-            || (inBar == 1 && (mode != GameMode.Easy || Random.value < 0.30f))
-            || (inBar == 3 && Random.value < 0.50f);
+        bool spawnThis;
+        switch (mode)
+        {
+            case GameMode.Easy:
+                spawnThis = (inBar == 0 || inBar == 2) || Random.value < 0.40f;
+                break;
+            case GameMode.Medium:
+                // Uptown Funk groove: 1=yes, 2=ghost(25%), 3=yes, 4=anticipation(60%)
+                spawnThis = inBar == 0 || inBar == 2
+                    || (inBar == 1 && Random.value < 0.25f)
+                    || (inBar == 3 && Random.value < 0.60f);
+                break;
+            case GameMode.Hard:
+                // Runaway Baby: every beat hits (176 BPM, spawning on half-notes)
+                // inBar 0=beat1(kick), 1=beat3(kick), 2=beat5..., cycling 8 half-notes
+                // All half-note beats spawn, occasional 16th fill on bar boundaries
+                spawnThis = true; // every half-note spawn slot is active
+                // Extra 16th-note burst on every 4th bar: spawn double lane
+                if (bar > 0 && bar % 4 == 0 && inBar == 3 && Random.value < 0.70f)
+                {
+                    SpawnNormalTile(Random.Range(0, 4));
+                    SpawnNormalTile(Random.Range(0, 4));
+                    return;
+                }
+                break;
+            default: // Endless
+                spawnThis = (inBar == 0 || inBar == 2) || Random.value < 0.45f;
+                break;
+        }
 
         if (!spawnThis) return;
 
-        // Long tile: spawn at the START of every 2 bars (beat 0 of bar 0, 2, 4...)
-        // Only on the downbeat so it feels musical
-        int bar = beat / 4;
-        if (inBar == 0 && bar > 0 && bar % 2 == 0 && Random.value < 0.60f)
+        // Long hold tile: every 2 bars on the downbeat (feels intentional)
+        if (inBar == 0 && bar > 0 && bar % 2 == 0 && Random.value < 0.55f)
         {
             SpawnLongTile(Random.Range(0, 4));
             return;
         }
 
-        // Normal tiles
         int[] lanes = PickPattern(inBar);
         foreach (int l in lanes)
             SpawnNormalTile(l);
