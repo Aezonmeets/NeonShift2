@@ -168,6 +168,53 @@ MonoBehaviour:
   blendDistance: 0
   weight: 1
   sharedProfile: {fileID: 11400000, guid: 6d1e33e3f09135e42ae052a66b3dc5b5, type: 2}
+--- !u!1 &31273065
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 31273066}
+  - component: {fileID: 31273067}
+  m_Layer: 0
+  m_Name: SettingsManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &31273066
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 31273065}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 534.68427, y: 304.80887, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &31273067
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 31273065}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 751425a37c7d6524f8fdca162e4425be, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SettingsManager
+  musicSlider: {fileID: 0}
+  sfxSlider: {fileID: 0}
+  mainMenuMusic: {fileID: 0}
 --- !u!1 &239240695
 GameObject:
   m_ObjectHideFlags: 0
@@ -679,14 +726,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 582a161d3275477428b863e85f9489cf, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MainMenuManager
+  menuMusic: {fileID: 8300000, guid: bd594b55a2480f644ad3aa4fab6da670, type: 3}
+  hoverSound: {fileID: 0}
+  clickSound: {fileID: 8300000, guid: ab8e9ca2451c54d40bf0eb683e6b6d93, type: 3}
   easyIcon: {fileID: 0}
   mediumIcon: {fileID: 0}
   hardIcon: {fileID: 0}
   endlessIcon: {fileID: 0}
   quitIcon: {fileID: -5522147866384714983, guid: e31daf537c85a834a9c0e7d7d5aa2f44, type: 3}
   settingsIcon: {fileID: 0}
-  volumeIcon: {fileID: 0}
-  profileIcon: {fileID: 0}
 --- !u!4 &693022775
 Transform:
   m_ObjectHideFlags: 0
@@ -2949,3 +2997,4 @@ SceneRoots:
   - {fileID: 1382271177}
   - {fileID: 1830550039}
   - {fileID: 2026824708}
+  - {fileID: 31273066}

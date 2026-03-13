@@ -16,6 +16,10 @@ public class GameManager : MonoBehaviour
     [Tooltip("Increase this to make the Game Over screen neon colors glow brighter!")]
     public float glowIntensity = 2.5f;
 
+    [Header("Sound Effects")]
+    [Tooltip("Drag your Game Over sound clip here in the Inspector!")]
+    public AudioClip sGameOver;
+
     int score, combo, maxCombo, total, hits;
     float hp = 100f;
     bool alive, paused;
@@ -57,9 +61,15 @@ public class GameManager : MonoBehaviour
         foreach (var c in FindObjectsByType<Canvas>(FindObjectsSortMode.None))
             if (c.gameObject != gameObject) Destroy(c.gameObject);
 
-        sfx = gameObject.AddComponent<AudioSource>(); sfx.volume = .55f;
+        // ── SYNCED VOLUME SETTINGS ──
+        sfx = gameObject.AddComponent<AudioSource>(); 
+        sfx.volume = PlayerPrefs.GetFloat("SFXVolume", 0.8f); // Reads your saved SFX slider!
+
         music = gameObject.AddComponent<AudioSource>();
-        music.loop = false; music.volume = .7f;
+        music.loop = false; 
+        music.volume = PlayerPrefs.GetFloat("MusicVolume", 0.55f); // Reads your saved Music slider!
+        // ────────────────────────────
+
         sPerfect = Beep(880f, .08f); sGood = Beep(660f, .06f); sMiss = Beep(110f, .13f, true);
         BuildUI();
     }
@@ -192,7 +202,7 @@ public class GameManager : MonoBehaviour
         {
             case HitResult.Perfect:
                 hits++;
-                combo++; // PERFECT increases combo
+                combo++;
                 score += 300 + combo * 12;
                 lbl = "PERFECT!";
                 col = CP;
@@ -200,15 +210,15 @@ public class GameManager : MonoBehaviour
                 break;
             case HitResult.Good:
                 hits++;
-                combo = 0; // GOOD now resets combo (Perfect-only rule)
-                score += 100; // Standard score, no multiplier
+                combo = 0;
+                score += 100;
                 lbl = "GOOD";
                 col = CG;
                 sfx.PlayOneShot(sGood);
                 break;
             default: // MISS
                 combo = 0;
-                hp = Mathf.Max(0f, hp - 10f); // Normal miss is -10 hp
+                hp = Mathf.Max(0f, hp - 10f);
                 lbl = "MISS";
                 col = CM;
                 sfx.PlayOneShot(sMiss);
@@ -239,7 +249,13 @@ public class GameManager : MonoBehaviour
 
     void GameOver()
     {
-        alive = false; music.Stop();
+        alive = false;
+        music.Stop();
+
+        // ── Play Game Over sound ──
+        if (sGameOver != null)
+            sfx.PlayOneShot(sGameOver);
+
         TileSpawner.Instance.StopSpawning();
         TrackController.Instance.StopRotating();
         float acc = total > 0 ? (float)hits / total * 100f : 0f;
@@ -353,7 +369,6 @@ public class GameManager : MonoBehaviour
         goAcc = T(statsBox, "0.0%", 56, new Vector2(0, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         goAcc.color = GetHDR(CG); goAcc.fontStyle = FontStyles.Bold;
 
-        // ── FIXED TYPO HERE (cLBl -> cLbl) ──
         var cLbl = T(statsBox, "MAX COMBO", 18, new Vector2(250, 25), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         cLbl.color = Color.white; cLbl.fontStyle = FontStyles.Bold;
         goCombo = T(statsBox, "x0", 56, new Vector2(250, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);

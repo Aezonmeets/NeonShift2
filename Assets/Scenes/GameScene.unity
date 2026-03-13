@@ -810,6 +810,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   currentMode: 0
   glowIntensity: 2
+  sGameOver: {fileID: 8300000, guid: ba478f9be3fa1284e964c5b594217f51, type: 3}
 --- !u!4 &1629463987
 Transform:
   m_ObjectHideFlags: 0

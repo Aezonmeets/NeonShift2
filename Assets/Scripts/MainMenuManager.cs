@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using UnityEngine.SceneManagement;
+using UnityEngine.EventSystems;
 
 public class MainMenuManager : MonoBehaviour
 {
@@ -18,6 +19,12 @@ public class MainMenuManager : MonoBehaviour
 
     static readonly string[] ModeLabels = { "EASY", "MEDIUM", "HARD", "ENDLESS" };
 
+    [Header("Audio Settings")]
+    [Tooltip("Drag your audio files here from the Project window!")]
+    public AudioClip menuMusic; 
+    public AudioClip hoverSound; 
+    public AudioClip clickSound; 
+
     [Header("Assign Your Icons Here!")]
     public Sprite easyIcon;
     public Sprite mediumIcon;
@@ -25,22 +32,35 @@ public class MainMenuManager : MonoBehaviour
     public Sprite endlessIcon;
     public Sprite quitIcon;
     [Space(10)]
-    public Sprite settingsIcon;
-    public Sprite volumeIcon;
-    public Sprite profileIcon;
+    public Sprite settingsIcon; // ONLY the settings icon remains!
 
     AudioSource music;
+    AudioSource sfx; 
 
     void Start()
     {
         Camera.main.backgroundColor = DARK_BG;
         Camera.main.clearFlags = CameraClearFlags.SolidColor;
 
+        // Setup Music Player - Reads saved volume!
         music = gameObject.AddComponent<AudioSource>();
-        music.loop = true; music.volume = 0.55f;
-        var clip = Resources.Load<AudioClip>("Music/Menu");
-        if (clip) { music.clip = clip; music.Play(); }
+        music.loop = true; 
+        music.volume = PlayerPrefs.GetFloat("MusicVolume", 0.55f); 
+        if (menuMusic != null) { music.clip = menuMusic; music.Play(); }
 
+        // Setup SFX Player - Reads saved volume!
+        sfx = gameObject.AddComponent<AudioSource>();
+        sfx.playOnAwake = false;
+        sfx.volume = PlayerPrefs.GetFloat("SFXVolume", 0.8f);
+
+        Build();
+    }
+
+    [ContextMenu("Show UI in Editor")]
+    void ShowUIInEditor()
+    {
+        GameObject oldCanvas = GameObject.Find("Canvas");
+        if (oldCanvas != null) { DestroyImmediate(oldCanvas); }
         Build();
     }
 
@@ -56,6 +76,9 @@ public class MainMenuManager : MonoBehaviour
         sc.matchWidthOrHeight = 0.5f;
         cgo.AddComponent<GraphicRaycaster>();
 
+        // We declare this early so our top button can open it!
+        GameObject settingsPanel = null; 
+
         // ── DARK BACKGROUND ───────────────────────────────────────────────
         var bg = new GameObject("BG"); bg.transform.SetParent(cgo.transform, false);
         var bgRT = bg.AddComponent<RectTransform>();
@@ -69,34 +92,38 @@ public class MainMenuManager : MonoBehaviour
         var topLogo = T(cgo, "↺ NEON SHIFT", 16, new Vector2(30, -22), A(0, 1), A(0, 1), TextAlignmentOptions.Left);
         topLogo.color = CYAN; topLogo.fontStyle = FontStyles.Bold;
 
-        // Top Right Utility Buttons with REAL Images
-        Sprite[] topSprites = { settingsIcon, volumeIcon, profileIcon };
-        float rightStart = -130f;
-        for (int i = 0; i < 3; i++)
-        {
-            var iconBtn = new GameObject("TopIcon_" + i);
-            iconBtn.transform.SetParent(cgo.transform, false);
-            var irt = iconBtn.AddComponent<RectTransform>();
-            irt.anchorMin = irt.anchorMax = A(1, 1);
-            irt.anchoredPosition = new Vector2(rightStart + (i * 45), -22);
-            irt.sizeDelta = new Vector2(35, 35);
+        // ── SINGLE SETTINGS BUTTON (Top Right) ────────────────────────────
+        var iconBtn = new GameObject("TopIcon_Settings");
+        iconBtn.transform.SetParent(cgo.transform, false);
+        var irt = iconBtn.AddComponent<RectTransform>();
+        irt.anchorMin = irt.anchorMax = A(1, 1);
+        irt.anchoredPosition = new Vector2(-40, -22); // Tucked nicely into the top right corner
+        irt.sizeDelta = new Vector2(35, 35);
 
-            var iImg = iconBtn.AddComponent<Image>();
-            iImg.color = new Color(0.1f, 0.15f, 0.2f, 0.8f);
-            iconBtn.AddComponent<Outline>().effectColor = new Color(CYAN.r, CYAN.g, CYAN.b, 0.4f);
+        var iImg = iconBtn.AddComponent<Image>();
+        iImg.color = new Color(0.1f, 0.15f, 0.2f, 0.8f);
+        iconBtn.AddComponent<Outline>().effectColor = new Color(CYAN.r, CYAN.g, CYAN.b, 0.4f);
 
-            // Image inside the box
-            var innerImgObj = new GameObject("Sprite");
-            innerImgObj.transform.SetParent(iconBtn.transform, false);
-            var innerRt = innerImgObj.AddComponent<RectTransform>();
-            innerRt.anchorMin = A(0.2f, 0.2f); innerRt.anchorMax = A(0.8f, 0.8f);
-            innerRt.offsetMin = innerRt.offsetMax = Vector2.zero;
+        var innerImgObj = new GameObject("Sprite");
+        innerImgObj.transform.SetParent(iconBtn.transform, false);
+        var innerRt = innerImgObj.AddComponent<RectTransform>();
+        innerRt.anchorMin = A(0.2f, 0.2f); innerRt.anchorMax = A(0.8f, 0.8f);
+        innerRt.offsetMin = innerRt.offsetMax = Vector2.zero;
 
-            var actualImage = innerImgObj.AddComponent<Image>();
-            actualImage.sprite = topSprites[i]; // Assigns your dragged sprite
-            actualImage.color = CYAN;
-            actualImage.preserveAspect = true;
-        }
+        var actualImage = innerImgObj.AddComponent<Image>();
+        actualImage.sprite = settingsIcon; 
+        actualImage.color = CYAN;
+        actualImage.preserveAspect = true;
+        
+        var topBtn = iconBtn.AddComponent<Button>();
+        AddButtonSounds(topBtn);
+
+        // Click to toggle the settings menu!
+        topBtn.onClick.AddListener(() => {
+            if (settingsPanel != null) {
+                settingsPanel.SetActive(!settingsPanel.activeSelf); 
+            }
+        });
 
         // ── TITLE ─────────────────────────────────────────────────────────
         float titleY = 160f;
@@ -110,9 +137,6 @@ public class MainMenuManager : MonoBehaviour
         sub.color = CYAN; sub.fontStyle = FontStyles.Bold;
         sub.characterSpacing = 5f;
 
-        var sub2 = T(cgo, "Tiles rotate! Stay sharp.", 14, new Vector2(0, titleY - 95), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        sub2.color = new Color(0.6f, 0.7f, 0.8f, 0.75f);
-
         // ── BUTTONS ───────────────────────────────────────────────────────
         Sprite[] modeSprites = { easyIcon, mediumIcon, hardIcon, endlessIcon };
         float startY = -10f, gap = -65f;
@@ -124,16 +148,101 @@ public class MainMenuManager : MonoBehaviour
                 new Vector2(0, startY + gap * i), () => { PlayerPrefs.SetInt("SelectedMode", mi); SceneManager.LoadScene("GameScene"); });
         }
 
-        // Leaderboard Button
         ModeButton(cgo, "LEADERBOARD", null, new Color(0.4f, 0.7f, 1f),
             new Vector2(0, startY + gap * 4 - 15), () => LeaderboardManager.OpenLeaderboardScene("MainMenu"));
 
-        // Quit Button
         ModeButton(cgo, "QUIT GAME", quitIcon, new Color(0.4f, 0.45f, 0.55f),
             new Vector2(0, startY + gap * 5 - 15), () => Application.Quit());
+
+        // ── BUILD SETTINGS PANEL AT THE END SO IT SITS ON TOP ──────────────
+        settingsPanel = CreateSettingsPanel(cgo);
+        settingsPanel.SetActive(false); // Hide it until the player clicks the button!
     }
 
-    // ── BUTTON GENERATOR ──────────────────────────────────────────────
+    // ── SETTINGS PANEL BUILDER ────────────────────────────────────────
+    GameObject CreateSettingsPanel(GameObject canvasGo)
+    {
+        var panel = new GameObject("SettingsPanel");
+        panel.transform.SetParent(canvasGo.transform, false);
+        var prt = panel.AddComponent<RectTransform>();
+        prt.anchorMin = prt.anchorMax = A(0.5f, 0.5f);
+        prt.anchoredPosition = Vector2.zero; 
+        prt.sizeDelta = new Vector2(450, 400); 
+        
+        var img = panel.AddComponent<Image>();
+        img.color = new Color(0.05f, 0.07f, 0.11f, 0.98f); 
+        var outline = panel.AddComponent<Outline>();
+        outline.effectColor = CYAN;
+        outline.effectDistance = new Vector2(2, -2);
+        
+        T(panel, "SETTINGS", 35, new Vector2(0, 140), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center).color = MAGENTA;
+
+        // Slider 1: Music
+        float savedMusic = PlayerPrefs.GetFloat("MusicVolume", 0.55f);
+        CreateSlider(panel, "MUSIC VOLUME", 40, savedMusic, (val) => {
+            PlayerPrefs.SetFloat("MusicVolume", val);
+            if (music != null) music.volume = val;
+        });
+
+        // Slider 2: Sound Effects
+        float savedSfx = PlayerPrefs.GetFloat("SFXVolume", 0.8f);
+        CreateSlider(panel, "SFX VOLUME", -40, savedSfx, (val) => {
+            PlayerPrefs.SetFloat("SFXVolume", val);
+            if (sfx != null) sfx.volume = val;
+        });
+
+        // Close Button
+        ModeButton(panel, "CLOSE MENU", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -140), () => {
+            panel.SetActive(false);
+            if (sfx != null && clickSound != null) sfx.PlayOneShot(clickSound);
+        });
+
+        return panel;
+    }
+
+    void CreateSlider(GameObject parent, string label, float yPos, float startVal, UnityEngine.Events.UnityAction<float> onValueChanged)
+    {
+        T(parent, label, 18, new Vector2(0, yPos + 30), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center).color = CYAN;
+
+        var sgo = new GameObject("Slider_" + label);
+        sgo.transform.SetParent(parent.transform, false);
+        var srt = sgo.AddComponent<RectTransform>();
+        srt.anchoredPosition = new Vector2(0, yPos);
+        srt.sizeDelta = new Vector2(300, 25); // Slightly thicker so it's easier to click
+
+        var bg = new GameObject("Background");
+        bg.transform.SetParent(sgo.transform, false);
+        var bgrt = bg.AddComponent<RectTransform>();
+        bgrt.anchorMin = Vector2.zero; bgrt.anchorMax = Vector2.one;
+        bgrt.offsetMin = bgrt.offsetMax = Vector2.zero;
+        var bgImg = bg.AddComponent<Image>();
+        bgImg.color = new Color(0.02f, 0.03f, 0.05f);
+        bg.AddComponent<Outline>().effectColor = new Color(1f, 1f, 1f, 0.2f);
+
+        var fillArea = new GameObject("FillArea");
+        fillArea.transform.SetParent(sgo.transform, false);
+        var fart = fillArea.AddComponent<RectTransform>();
+        fart.anchorMin = Vector2.zero; fart.anchorMax = Vector2.one;
+        fart.offsetMin = new Vector2(2, 2); fart.offsetMax = new Vector2(-2, -2); 
+
+        var fill = new GameObject("Fill");
+        fill.transform.SetParent(fillArea.transform, false);
+        var frt = fill.AddComponent<RectTransform>();
+        frt.anchorMin = Vector2.zero; frt.anchorMax = Vector2.one;
+        frt.offsetMin = frt.offsetMax = Vector2.zero;
+        fill.AddComponent<Image>().color = CYAN; 
+
+        // Make sure the slider is fully interactive via code
+        var slider = sgo.AddComponent<Slider>();
+        slider.targetGraphic = bgImg; // Allows the background to catch your mouse clicks!
+        slider.fillRect = frt;
+        slider.minValue = 0f;
+        slider.maxValue = 1f;
+        slider.value = startVal;
+        slider.onValueChanged.AddListener(onValueChanged);
+    }
+
+    // ── GENERAL BUTTON MAKER ──────────────────────────────────────────
     void ModeButton(GameObject p, string lbl, Sprite iconSprite, Color col, Vector2 pos, UnityEngine.Events.UnityAction cb)
     {
         var go = new GameObject("Btn_" + lbl);
@@ -165,26 +274,44 @@ public class MainMenuManager : MonoBehaviour
         tmp.characterSpacing = 3f;
         tmp.color = Color.white;
 
-        // Right-side REAL Icon Image
         if (iconSprite != null)
         {
             var igo = new GameObject("Icon"); igo.transform.SetParent(go.transform, false);
             var irt = igo.AddComponent<RectTransform>();
             irt.anchorMin = new Vector2(1, 0.5f); irt.anchorMax = new Vector2(1, 0.5f);
-            irt.anchoredPosition = new Vector2(-30, 0); // Position from the right edge
-            irt.sizeDelta = new Vector2(24, 24); // Size of the icon
+            irt.anchoredPosition = new Vector2(-30, 0); 
+            irt.sizeDelta = new Vector2(24, 24); 
             var actualImage = igo.AddComponent<Image>();
             actualImage.sprite = iconSprite;
-            actualImage.color = col; // Tints the icon to match the button's accent color
+            actualImage.color = col; 
             actualImage.preserveAspect = true;
         }
 
-        var btn = go.AddComponent<Button>(); btn.targetGraphic = img; btn.onClick.AddListener(cb);
-
+        var btn = go.AddComponent<Button>(); btn.targetGraphic = img; 
+        
+        btn.onClick.AddListener(cb);
+        
         var cb2 = btn.colors;
         cb2.highlightedColor = new Color(col.r * 0.2f, col.g * 0.2f, col.b * 0.2f, 0.95f);
         cb2.pressedColor = new Color(col.r * 0.3f, col.g * 0.3f, col.b * 0.3f, 0.95f);
         btn.colors = cb2;
+
+        AddButtonSounds(btn);
+    }
+
+    void AddButtonSounds(Button btn)
+    {
+        btn.onClick.AddListener(() => {
+            if (sfx != null && clickSound != null) sfx.PlayOneShot(clickSound);
+        });
+
+        EventTrigger trigger = btn.gameObject.AddComponent<EventTrigger>();
+        EventTrigger.Entry entry = new EventTrigger.Entry();
+        entry.eventID = EventTriggerType.PointerEnter;
+        entry.callback.AddListener((data) => {
+            if (sfx != null && hoverSound != null) sfx.PlayOneShot(hoverSound);
+        });
+        trigger.triggers.Add(entry);
     }
 
     void HBar(GameObject p, Color col, Vector2 aMin, Vector2 aMax, float offY, float height, float alpha)
