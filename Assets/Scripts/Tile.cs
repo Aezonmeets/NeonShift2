@@ -6,21 +6,20 @@ public class Tile : MonoBehaviour
     [HideInInspector] public int lane;
     [HideInInspector] public float speed;
     [HideInInspector] public bool isLong;
-    [HideInInspector] public float holdLength; // world-unit length of hold tile
+    [HideInInspector] public float holdLength;
 
     public bool IsHit { get; private set; }
     public bool IsMissed { get; private set; }
     public float DistToHitLine { get; private set; } = 999f;
     public bool IsPastHitLine { get; private set; } = false;
 
-    // Hold state
     public bool IsBeingHeld { get; private set; }
     bool holdComplete;
 
     public float glowIntensity = 3.5f;
 
     SpriteRenderer body;
-    SpriteRenderer tail;   // long tile tail
+    SpriteRenderer tail;
     Color col;
 
     float currentDist;
@@ -43,7 +42,6 @@ public class Tile : MonoBehaviour
 
     void BuildVisuals()
     {
-        // Main head tile
         body = gameObject.AddComponent<SpriteRenderer>();
         body.sprite = MakeBox();
         body.color = new Color(col.r * glowIntensity, col.g * glowIntensity, col.b * glowIntensity, 1f);
@@ -53,20 +51,19 @@ public class Tile : MonoBehaviour
 
         if (isLong)
         {
-            // Tail: a stretched box behind the head
             var tailGO = new GameObject("Tail");
             tailGO.transform.SetParent(transform, false);
             tail = tailGO.AddComponent<SpriteRenderer>();
-            tail.sprite = MakeBox();
+
+            tail.sprite = MakeGradientTail();
             tail.sortingOrder = 9;
             tail.material = new Material(Shader.Find("Sprites/Default"));
 
-            // Tail is scaled in local space — width matches head, height = holdLength
-            float tailH = holdLength / 0.35f; // compensate for parent's y scale
-            tailGO.transform.localScale = new Vector3(1f, -tailH, 1f); // negative = extends behind
-            tailGO.transform.localPosition = new Vector3(0f, 0.5f, 0.01f); // pivot at top of head
-            tail.color = new Color(col.r * glowIntensity * 0.55f, col.g * glowIntensity * 0.55f,
-                                   col.b * glowIntensity * 0.55f, 0.65f);
+            float tailH = holdLength / 0.35f;
+            tailGO.transform.localScale = new Vector3(0.95f, tailH, 1f);
+            tailGO.transform.localPosition = new Vector3(0f, 0f, 0.01f);
+
+            tail.color = new Color(col.r * glowIntensity * 0.85f, col.g * glowIntensity * 0.85f, col.b * glowIntensity * 0.85f, 1f);
         }
     }
 
@@ -80,13 +77,32 @@ public class Tile : MonoBehaviour
         return Sprite.Create(tex, new Rect(0, 0, 4, 4), new Vector2(0.5f, 0.5f), 4f);
     }
 
+    static Sprite MakeGradientTail()
+    {
+        int w = 64, h = 64;
+        var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        var px = new Color[w * h];
+
+        for (int y = 0; y < h; y++)
+        {
+            float alpha = 1f - (y / (float)(h - 1));
+            for (int x = 0; x < w; x++)
+            {
+                px[y * w + x] = new Color(1f, 1f, 1f, alpha);
+            }
+        }
+        tex.SetPixels(px); tex.Apply();
+
+        return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0f), 64f);
+    }
+
     void Update()
     {
         if (IsHit || IsMissed) return;
         var tc = TrackController.Instance;
         if (!tc) return;
 
-        // Handle hold input
         if (IsBeingHeld)
         {
             UpdateHold(tc);
@@ -100,23 +116,38 @@ public class Tile : MonoBehaviour
         float cur = transform.eulerAngles.z;
         transform.rotation = Quaternion.Euler(0f, 0f, Mathf.LerpAngle(cur, target, Time.deltaTime * 14f));
 
-        // distPast > 0 means tile has passed the key line (gone below)
         float distPast = currentDist - tc.hitDist;
 
-        // Once past the keys: DistToHitLine = 999 so PlayerController CANNOT register a hit
-        // Only tiles still approaching get a real distance value
-        DistToHitLine = distPast <= 0f ? Mathf.Abs(distPast) : 999f;
+        if (isLong)
+        {
+            float tailEndDist = currentDist - holdLength;
 
-        // Auto-miss with tiny grace (one frame) — anything below keys = miss
-        if (distPast > 0.0f) Miss();
+            if (distPast <= 0f)
+            {
+                DistToHitLine = Mathf.Abs(distPast);
+            }
+            else if (tailEndDist <= tc.hitDist)
+            {
+                DistToHitLine = 0f;
+            }
+            else
+            {
+                DistToHitLine = 999f;
+            }
+
+            if (tailEndDist > tc.hitDist + 0.080f) Miss();
+        }
+        else
+        {
+            DistToHitLine = distPast <= 0f ? Mathf.Abs(distPast) : 999f;
+            if (distPast > 0.080f) Miss();
+        }
     }
 
     void UpdateHold(TrackController tc)
     {
-        // Head moves with the track but is CLAMPED at the key line
         currentDist += speed * Time.deltaTime;
 
-        // Head position: clamp so it never goes past the hit line (stays on the keys)
         float headDist = Mathf.Min(currentDist, tc.hitDist);
         transform.position = tc.LaneWorldPos(lane, headDist);
 
@@ -126,69 +157,67 @@ public class Tile : MonoBehaviour
 
         if (tail)
         {
-            // Tail extends ABOVE the key line only — never below
-            // tailStart = how far above hitDist the tail begins (the unplayed portion)
-            float tailStart = tc.hitDist - holdLength;                    // world dist where tail begins
-            float consumed = Mathf.Max(0f, currentDist - tailStart);     // how much has been eaten
-            float remaining = Mathf.Max(0f, holdLength - consumed);        // how much tail is left
+            float remainingLength;
 
-            // Tail is always anchored at the hit line, growing upward (negative MoveDir)
-            // We reposition the tail GO to sit exactly at hitDist and scale upward
-            tail.transform.position = tc.LaneWorldPos(lane, tc.hitDist);
-            tail.transform.rotation = transform.rotation;
-            // localScale: width=1 (inherits head's x=1.8), height = remaining in world units
-            float tailH = remaining / 0.35f;  // 0.35 = head's localScale.y
-            tail.transform.localScale = new Vector3(1f, Mathf.Max(0.01f, tailH), 1f);
-            // Reset local position so it extends behind (above) the key line
-            tail.transform.localPosition = new Vector3(0f, 0.5f, 0.01f);
-
-            if (remaining <= 0f)
+            if (currentDist < tc.hitDist)
             {
-                // Hold complete!
+                remainingLength = holdLength;
+            }
+            else
+            {
+                float overshot = currentDist - tc.hitDist;
+                remainingLength = Mathf.Max(0f, holdLength - overshot);
+            }
+
+            float tailH = remainingLength / 0.35f;
+            tail.transform.localScale = new Vector3(0.95f, Mathf.Max(0.01f, tailH), 1f);
+
+            if (remainingLength <= 0f)
+            {
                 holdComplete = true;
+                // ── ADDED: Give the final Perfect score payout for holding all the way! ──
+                GameManager.Instance?.RegisterHit(HitResult.Perfect, transform.position);
                 Hit(HitResult.Perfect);
             }
         }
     }
 
-    // Called by PlayerController when key pressed on a long tile
     public void StartHold()
     {
         if (!isLong || IsHit || IsMissed) return;
         IsBeingHeld = true;
-        StopAllCoroutines(); // stop the dim pulse
-        // Instant bright white flash to show hold registered
+        StopAllCoroutines();
+
         if (body) body.color = new Color(
             Mathf.Min(1f, col.r * glowIntensity * 1.6f),
             Mathf.Min(1f, col.g * glowIntensity * 1.6f),
             Mathf.Min(1f, col.b * glowIntensity * 1.6f), 1f);
-        if (tail) tail.color = new Color(col.r * glowIntensity, col.g * glowIntensity, col.b * glowIntensity, 0.85f);
-        StartCoroutine(HoldPulse()); // bright pulsing while held
+
+        if (tail) tail.color = new Color(col.r * glowIntensity * 1.4f, col.g * glowIntensity * 1.4f, col.b * glowIntensity * 1.4f, 1f);
+
+        StartCoroutine(HoldPulse());
     }
 
     IEnumerator HoldPulse()
     {
         while (IsBeingHeld && !IsHit && !IsMissed)
         {
-            float p = 0.85f + Mathf.Sin(Time.time * 12f) * 0.15f; // fast bright pulse
+            float p = 0.85f + Mathf.Sin(Time.time * 12f) * 0.15f;
             if (body) body.color = new Color(col.r * glowIntensity * p, col.g * glowIntensity * p, col.b * glowIntensity * p, 1f);
             yield return null;
         }
     }
 
-    // Called by PlayerController when key released during hold
     public void ReleaseHold()
     {
         if (!IsBeingHeld) return;
         IsBeingHeld = false;
+
+        // ── CHANGED: If they let go early, it's a "Good" hit instead of a "Miss"! ──
         if (!holdComplete)
         {
-            StopAllCoroutines();
-            StartCoroutine(FadeOut(0.08f)); // fast red flash then miss
-            IsMissed = true;
-            GameManager.Instance?.RegisterHit(HitResult.Miss, transform.position);
-            TileSpawner.Instance?.RemoveTile(this);
-            PlayerController.Instance?.UnregisterTile(this);
+            GameManager.Instance?.RegisterHit(HitResult.Good, transform.position);
+            Hit(HitResult.Good); // This cleanly fades it out and spawns a green "Good" particle
         }
     }
 
@@ -227,6 +256,7 @@ public class Tile : MonoBehaviour
             t += Time.deltaTime; float p = t / 0.2f;
             transform.localScale = bs * (1f + p);
             if (body) body.color = new Color(fx.r, fx.g, fx.b, 1f - p);
+            if (tail) tail.color = new Color(fx.r, fx.g, fx.b, (1f - p) * 0.7f);
             yield return null;
         }
         Destroy(gameObject);
@@ -239,7 +269,7 @@ public class Tile : MonoBehaviour
         {
             t += Time.deltaTime;
             if (body) body.color = new Color(col.r * glowIntensity, col.g * glowIntensity, col.b * glowIntensity, 1f - t / dur);
-            if (tail) tail.color = new Color(col.r * glowIntensity * 0.55f, col.g * glowIntensity * 0.55f, col.b * glowIntensity * 0.55f, (1f - t / dur) * 0.65f);
+            if (tail) tail.color = new Color(col.r * glowIntensity * 0.7f, col.g * glowIntensity * 0.7f, col.b * glowIntensity * 0.7f, (1f - t / dur) * 0.75f);
             yield return null;
         }
         Destroy(gameObject);

@@ -16,16 +16,20 @@ public class GameManager : MonoBehaviour
     [Tooltip("Increase this to make the Game Over screen neon colors glow brighter!")]
     public float glowIntensity = 2.5f;
 
+
     int score, combo, maxCombo, total, hits;
     float hp = 100f;
     bool alive, paused;
 
+
     // HUD
     TextMeshProUGUI scoreTxt, comboTxt, accTxt, hpTxt, resultTxt;
+
     // Game Over
     TextMeshProUGUI goScore, goAcc, goCombo;
     GameObject goPanel, pausePanel, lbPanel;
     Coroutine resultCo;
+
 
     // Music
     AudioSource music;
