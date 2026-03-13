@@ -424,6 +424,8 @@ MonoBehaviour:
   laneSpacing: 2
   rotationInterval: 8
   transitionDuration: 0.6
+  spawnDist: 0
+  hitDist: 0
 --- !u!4 &768082873
 Transform:
   m_ObjectHideFlags: 0
@@ -836,6 +838,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   currentMode: 0
+  glowIntensity: 2.5
 --- !u!4 &1629463987
 Transform:
   m_ObjectHideFlags: 0
@@ -1429,6 +1432,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PlayerController
   hitZoneDistance: 1.2
   perfectZone: 0.5
+  keyProfiles: []
 --- !u!4 &2120558013
 Transform:
   m_ObjectHideFlags: 0

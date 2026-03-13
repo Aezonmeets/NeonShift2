@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using System.Collections;
 
 public class TrackController : MonoBehaviour
@@ -6,10 +6,10 @@ public class TrackController : MonoBehaviour
     public static TrackController Instance { get; private set; }
 
     public int laneCount = 4;
-    
+
     // Adjusted to 2.5f so the lines aren't too tight!
-    public float laneSpacing = 2.5f; 
-    
+    public float laneSpacing = 2.5f;
+
     public float rotationInterval = 8f;
     public float transitionDuration = 0.55f;
 
@@ -27,9 +27,12 @@ public class TrackController : MonoBehaviour
     Coroutine rotateCo;
     LineRenderer[] laneLines;
 
-    static readonly float[] Angles = { 0f, 90f, 180f, 270f, 45f, 135f, 225f, 315f };
-    float spawnDist;
-    float hitDist;
+    // ── ONLY ALLOW MIDDLE, LEFT, AND RIGHT ROTATIONS ──
+    static readonly float[] Angles = { 0f, 30f, -30f };
+
+    // ── ONLY CHANGE HERE: Made these public so Tiles can use them ──
+    public float spawnDist;
+    public float hitDist;
 
     void Awake()
     {
@@ -45,7 +48,7 @@ public class TrackController : MonoBehaviour
 
         float camH = Camera.main.orthographicSize;
         spawnDist = -(camH + 2.0f);
-        hitDist   =  (camH - 1.8f);
+        hitDist = (camH - 1.8f);
 
         BuildLaneLines();
     }
@@ -58,18 +61,18 @@ public class TrackController : MonoBehaviour
             var go = new GameObject("BorderLine_" + i);
             go.transform.SetParent(transform);
             var lr = go.AddComponent<LineRenderer>();
-            
+
             lr.material = new Material(Shader.Find("Sprites/Default"));
-            
+
             // THICKER LINES: Increased width to make the neon visible
             lr.startWidth = 0.06f;
-            lr.endWidth   = 0.06f;
+            lr.endWidth = 0.06f;
             lr.positionCount = 2;
             lr.sortingOrder = -1;
             lr.useWorldSpace = true;
 
             Color c = (i < laneCount) ? LaneColors[i] : LaneColors[laneCount - 1];
-            
+
             // GRADIENT FADE: Makes the top transparent and the bottom solid
             Gradient grad = new Gradient();
             grad.SetKeys(
@@ -97,17 +100,17 @@ public class TrackController : MonoBehaviour
             if (!laneLines[i]) continue;
             float offset = startBorderOffset - i * laneSpacing;
             Vector2 c = perp * offset;
-            
+
             // SetPosition(0) is the Top end of the line, SetPosition(1) is the Bottom end
-            laneLines[i].SetPosition(0, (Vector3)(c - move * 30f)); 
+            laneLines[i].SetPosition(0, (Vector3)(c - move * 30f));
             laneLines[i].SetPosition(1, (Vector3)(c + move * 20f));
         }
     }
 
     // --- HELPER METHODS FOR PLAYERCONTROLLER / TILE ---
-    public int   GetLaneCount()    => laneCount;
-    public float GetLaneSpacing()  => laneSpacing;
-    public bool  IsTransitioning() => transitioning;
+    public int GetLaneCount() => laneCount;
+    public float GetLaneSpacing() => laneSpacing;
+    public bool IsTransitioning() => transitioning;
 
     public Vector2 MoveDir()
     {
@@ -123,17 +126,17 @@ public class TrackController : MonoBehaviour
 
     public Vector3 LaneWorldPos(int lane, float dist)
     {
-        float total  = (laneCount - 1) * laneSpacing;
+        float total = (laneCount - 1) * laneSpacing;
         float offset = total / 2f - lane * laneSpacing;
-        Vector2 pos  = PerpDir() * offset + MoveDir() * dist;
+        Vector2 pos = PerpDir() * offset + MoveDir() * dist;
         return new Vector3(pos.x, pos.y, 0f);
     }
 
     public Vector3 SpawnPos(int lane) => LaneWorldPos(lane, spawnDist);
-    public Vector3 HitPos(int lane)   => LaneWorldPos(lane, hitDist);
+    public Vector3 HitPos(int lane) => LaneWorldPos(lane, hitDist);
 
     public void BeginRotating() { rotateCo = StartCoroutine(RotateLoop()); }
-    public void StopRotating()  { if (rotateCo != null) StopCoroutine(rotateCo); }
+    public void StopRotating() { if (rotateCo != null) StopCoroutine(rotateCo); }
 
     IEnumerator RotateLoop()
     {
@@ -148,7 +151,31 @@ public class TrackController : MonoBehaviour
     {
         transitioning = true;
         float from = CurrentAngle;
-        float next = Angles[Random.Range(0, Angles.Length)];
+
+        // ── BULLETPROOF RANDOM PICKER ──
+        // 1. Find which of the 3 array positions we are currently closest to
+        int currentIndex = 0;
+        float minDiff = float.MaxValue;
+        for (int i = 0; i < Angles.Length; i++)
+        {
+            float diff = Mathf.Abs(Mathf.DeltaAngle(from, Angles[i]));
+            if (diff < minDiff)
+            {
+                minDiff = diff;
+                currentIndex = i;
+            }
+        }
+
+        // 2. Pick a random position, and keep picking if it lands on the current one
+        int nextIndex = currentIndex;
+        while (nextIndex == currentIndex)
+        {
+            nextIndex = Random.Range(0, Angles.Length);
+        }
+
+        float next = Angles[nextIndex];
+
+        // ── EXECUTE ROTATION ──
         float t = 0f;
         while (t < transitionDuration)
         {
@@ -157,6 +184,27 @@ public class TrackController : MonoBehaviour
             yield return null;
         }
         CurrentAngle = next;
+
+        // Trigger the Player Controller update
+        if (PlayerController.Instance != null)
+        {
+            UpdatePlayerControls(CurrentAngle);
+        }
+
         transitioning = false;
+    }
+
+    void UpdatePlayerControls(float targetAngle)
+    {
+        float normalizedAngle = Mathf.Repeat(targetAngle, 360f);
+
+        if (normalizedAngle >= 315f || normalizedAngle < 45f)
+            PlayerController.Instance.SetControlsForRotation(PlayerController.RotationState.Normal);
+        else if (normalizedAngle >= 45f && normalizedAngle < 135f)
+            PlayerController.Instance.SetControlsForRotation(PlayerController.RotationState.Rotated90);
+        else if (normalizedAngle >= 135f && normalizedAngle < 225f)
+            PlayerController.Instance.SetControlsForRotation(PlayerController.RotationState.Rotated180);
+        else
+            PlayerController.Instance.SetControlsForRotation(PlayerController.RotationState.Rotated270);
     }
 }
