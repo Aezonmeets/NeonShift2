@@ -1,2 +1,19 @@
 fileFormatVersion: 2
 guid: 582a161d3275477428b863e85f9489cf
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - easyIcon: {instanceID: 0}
+  - mediumIcon: {instanceID: 0}
+  - hardIcon: {instanceID: 0}
+  - endlessIcon: {instanceID: 0}
+  - quitIcon: {fileID: -5522147866384714983, guid: e31daf537c85a834a9c0e7d7d5aa2f44, type: 3}
+  - settingsIcon: {instanceID: 0}
+  - volumeIcon: {instanceID: 0}
+  - profileIcon: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

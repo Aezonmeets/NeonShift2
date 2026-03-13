@@ -10,6 +10,9 @@ public class Tile : MonoBehaviour
     public bool  IsMissed      { get; private set; }
     public float DistToHitLine { get; private set; } = 999f;
 
+    // --- NEW: Add a multiplier to make the color bright enough for Bloom to catch it ---
+    public float glowIntensity = 3.5f; 
+
     SpriteRenderer body;
     Color col;
 
@@ -26,7 +29,10 @@ public class Tile : MonoBehaviour
     {
         body = gameObject.AddComponent<SpriteRenderer>();
         body.sprite = MakeBox();
-        body.color  = col;
+        
+        // --- MODIFIED: Multiply RGB by glowIntensity to create an HDR color ---
+        body.color = new Color(col.r * glowIntensity, col.g * glowIntensity, col.b * glowIntensity, 1f);
+        
         body.sortingOrder = 10;
         body.material = new Material(Shader.Find("Sprites/Default"));
         transform.localScale = new Vector3(1.8f, 0.35f, 1f);
@@ -48,16 +54,12 @@ public class Tile : MonoBehaviour
         var tc = TrackController.Instance;
         if (!tc) return;
 
-        // Move along lane direction
         transform.position += (Vector3)(tc.MoveDir() * speed * Time.deltaTime);
 
-        // Rotate tile to match track angle
         float target = tc.CurrentAngle;
         float cur    = transform.eulerAngles.z;
         transform.rotation = Quaternion.Euler(0f, 0f, Mathf.LerpAngle(cur, target, Time.deltaTime * 14f));
 
-        // Hit detection uses the FIXED receptor position (never the rotated HitPos)
-        // This matches where PlayerController actually draws the key zones
         var pc = PlayerController.Instance;
         Vector3 receptorPos = pc != null
             ? new Vector3(pc.GetLaneX(lane), pc.GetReceptorY(), 0f)
@@ -65,7 +67,6 @@ public class Tile : MonoBehaviour
 
         DistToHitLine = Vector3.Distance(transform.position, receptorPos);
 
-        // Auto-miss: tile has passed 2.5 units beyond the receptor bar
         Vector2 toHit = (Vector2)receptorPos - (Vector2)transform.position;
         float   dot   = Vector2.Dot(tc.MoveDir(), toHit);
         if (dot < -2.5f) Miss();
@@ -88,11 +89,16 @@ public class Tile : MonoBehaviour
         TileSpawner.Instance?.RemoveTile(this);
         PlayerController.Instance?.UnregisterTile(this);
         StopAllCoroutines();
+        
+        // --- MODIFIED: Apply glow intensity to the hit effects as well ---
         Color fx = result == HitResult.Perfect ? new Color(1f, 0.95f, 0.15f)
                  : result == HitResult.Good    ? new Color(0.25f, 1f, 0.45f)
                                                : new Color(1f, 0.25f, 0.25f);
-        ParticlePoolManager.Instance?.SpawnAt(transform.position, fx);
-        StartCoroutine(HitAnim(fx));
+        
+        Color hdrFx = new Color(fx.r * glowIntensity, fx.g * glowIntensity, fx.b * glowIntensity, 1f);
+        
+        ParticlePoolManager.Instance?.SpawnAt(transform.position, hdrFx);
+        StartCoroutine(HitAnim(hdrFx));
     }
 
     IEnumerator HitAnim(Color fx)
@@ -114,7 +120,8 @@ public class Tile : MonoBehaviour
         while (t < dur)
         {
             t += Time.deltaTime;
-            if (body) body.color = new Color(col.r, col.g, col.b, 1f - t / dur);
+            // --- MODIFIED: Maintain the HDR color while fading out ---
+            if (body) body.color = new Color(col.r * glowIntensity, col.g * glowIntensity, col.b * glowIntensity, 1f - t / dur);
             yield return null;
         }
         Destroy(gameObject);
@@ -125,7 +132,8 @@ public class Tile : MonoBehaviour
         while (!IsHit && !IsMissed)
         {
             float p = 0.75f + Mathf.Sin(Time.time * 6f + lane) * 0.22f;
-            if (body) body.color = new Color(col.r, col.g, col.b, p);
+            // --- MODIFIED: Multiply RGB by intensity, keep Alpha tied to 'p' ---
+            if (body) body.color = new Color(col.r * glowIntensity, col.g * glowIntensity, col.b * glowIntensity, p);
             yield return null;
         }
     }
