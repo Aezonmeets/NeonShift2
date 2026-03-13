@@ -46,6 +46,20 @@ public class MainMenuManager : MonoBehaviour
 
     void Build()
     {
+        [ContextMenu("Show UI in Editor")]
+    void ShowUIInEditor()
+    {
+        // 1. Find and kill any old Canvas from previous clicks
+        GameObject oldCanvas = GameObject.Find("Canvas");
+        if (oldCanvas != null) 
+        {
+            // Use DestroyImmediate because we are in the Editor, not Playing
+            DestroyImmediate(oldCanvas);
+        }
+
+        // 2. Build the UI manually
+        Build();
+    }
         var cgo = new GameObject("Canvas");
         var cv = cgo.AddComponent<Canvas>();
         cv.renderMode = RenderMode.ScreenSpaceOverlay;

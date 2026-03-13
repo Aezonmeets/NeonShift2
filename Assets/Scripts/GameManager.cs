@@ -13,9 +13,19 @@ public class GameManager : MonoBehaviour
     [HideInInspector] public GameMode currentMode = GameMode.Easy;
 
     [Header("Glow Settings")]
-    [Tooltip("Increase this to make the Game Over screen neon colors glow brighter!")]
-    public float glowIntensity = 2.5f;
+    [Tooltip("Intensity of the neon glow. Requires Bloom in Global Volume!")]
+    public float glowIntensity = 4.5f; 
 
+<<<<<<< HEAD
+=======
+    [Header("Combo Animation")]
+    public float comboFadeDelay = 1.0f; 
+    public float comboFadeSpeed = 2.5f; 
+    private float comboFadeTimer;
+    private Vector3 comboBaseScale;
+    private Coroutine comboBumpCo;
+
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
     int score, combo, maxCombo, total, hits;
     float hp = 100f;
     bool alive, paused;
@@ -28,6 +38,7 @@ public class GameManager : MonoBehaviour
     GameObject goPanel, pausePanel, lbPanel;
     Coroutine resultCo;
 
+<<<<<<< HEAD
     // Music
     AudioSource music;
     AudioSource sfx;
@@ -45,37 +56,71 @@ public class GameManager : MonoBehaviour
         new Color(1f,.35f,.1f),
         new Color(.8f,.1f,1f),
     };
+=======
+    // Music/Audio
+    AudioSource music, sfx;
+    AudioClip sPerfect, sGood, sMiss;
+
+    // Neon Colors
+    static readonly Color CP = new Color(1f, .95f, .15f);      // Perfect (Yellow)
+    static readonly Color CG = new Color(.1f, 1f, .6f);       // Good (Green)
+    static readonly Color CM = new Color(1f, .2f, .35f);      // Miss (Red)
+    static readonly Color CYAN = new Color(0f, .9f, 1f);      // Cyan
+    static readonly Color MAGENTA = new Color(1f, .15f, .75f); // Magenta
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
 
     void Awake()
     {
         if (Instance != null) { Destroy(gameObject); return; }
         Instance = this;
+<<<<<<< HEAD
         Camera.main.backgroundColor = new Color(.025f, .025f, .09f);
         Camera.main.clearFlags = CameraClearFlags.SolidColor;
         Camera.main.allowHDR = true;
+=======
+
+        // --- CAMERA & HDR SETUP ---
+        if (Camera.main != null)
+        {
+            Camera.main.backgroundColor = new Color(.01f, .01f, .04f);
+            Camera.main.clearFlags = CameraClearFlags.SolidColor;
+            Camera.main.allowHDR = true; 
+            
+            var data = Camera.main.GetComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
+            if (data != null) data.renderPostProcessing = true;
+        }
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
 
         foreach (var c in FindObjectsByType<Canvas>(FindObjectsSortMode.None))
             if (c.gameObject != gameObject) Destroy(c.gameObject);
 
         sfx = gameObject.AddComponent<AudioSource>(); sfx.volume = .55f;
         music = gameObject.AddComponent<AudioSource>();
+<<<<<<< HEAD
         music.loop = false; music.volume = .7f;
+=======
+        music.loop = true; music.volume = .7f;
+        
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
         sPerfect = Beep(880f, .08f); sGood = Beep(660f, .06f); sMiss = Beep(110f, .13f, true);
+        
         BuildUI();
     }
 
     void Start()
     {
-        TileSpawner.Instance.Init(currentMode);
+        if(TileSpawner.Instance != null) TileSpawner.Instance.Init(currentMode);
         ApplyMode();
         alive = true;
-        TileSpawner.Instance.BeginSpawning();
-        TrackController.Instance.BeginRotating();
+        if(TileSpawner.Instance != null) TileSpawner.Instance.BeginSpawning();
+        if(TrackController.Instance != null) TrackController.Instance.BeginRotating();
         TryPlayMusic();
     }
 
+    // This converts a standard color into an HDR color that triggers the Bloom effect
     Color GetHDR(Color c) => new Color(c.r * glowIntensity, c.g * glowIntensity, c.b * glowIntensity, 1f);
 
+<<<<<<< HEAD
     AudioClip[] playlist;
     int playlistIndex;
 
@@ -121,12 +166,22 @@ public class GameManager : MonoBehaviour
             int j = Random.Range(0, i + 1);
             var tmp = playlist[i]; playlist[i] = playlist[j]; playlist[j] = tmp;
         }
+=======
+    public bool IsGameActive() => alive; 
+
+    void TryPlayMusic()
+    {
+        string clipName = "Music/" + currentMode.ToString();
+        var clip = Resources.Load<AudioClip>(clipName);
+        if (clip != null) { music.clip = clip; music.Play(); }
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
     }
 
     void Update()
     {
         if (!alive) return;
         if (Input.GetKeyDown(KeyCode.Escape)) TogglePause();
+<<<<<<< HEAD
 
         if (currentMode == GameMode.Endless)
         {
@@ -170,11 +225,40 @@ public class GameManager : MonoBehaviour
         TrackController.Instance.rotationInterval = Mathf.Max(2.5f, 9f - intensity * 6f);
 
         TileSpawner.Instance.bpm = 90f + intensity * 60f + longTermBoost * 5f;
+=======
+        
+        if (currentMode == GameMode.Endless)
+        {
+            float t = Time.timeSinceLevelLoad;
+            if(TileSpawner.Instance != null) {
+                TileSpawner.Instance.spawnInterval = Mathf.Max(.38f, 1.1f - t * .005f);
+                TileSpawner.Instance.tileSpeed = Mathf.Min(18f, 5f + t * .02f);
+            }
+            if(TrackController.Instance != null)
+                TrackController.Instance.rotationInterval = Mathf.Max(3f, 8f - t * .012f);
+        }
+        
+        HandleComboFading();
+        RefreshHUD();
+    }
+
+    void HandleComboFading()
+    {
+        if (comboFadeTimer > 0) comboFadeTimer -= Time.deltaTime;
+        else if (comboTxt != null)
+        {
+            Color c = comboTxt.color;
+            c.a = Mathf.MoveTowards(c.a, 0f, Time.deltaTime * comboFadeSpeed);
+            comboTxt.color = c;
+        }
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
     }
 
     void ApplyMode()
     {
         var ts = TileSpawner.Instance; var tc = TrackController.Instance; var pc = PlayerController.Instance;
+        if (ts == null || tc == null || pc == null) return;
+
         switch (currentMode)
         {
             case GameMode.Easy: ts.spawnInterval = 1.3f; ts.tileSpeed = 5f; tc.rotationInterval = 9f; pc.hitZoneDistance = 1.4f; break;
@@ -191,6 +275,7 @@ public class GameManager : MonoBehaviour
         switch (r)
         {
             case HitResult.Perfect:
+<<<<<<< HEAD
                 hits++;
                 combo++; // PERFECT increases combo
                 score += 300 + combo * 12;
@@ -212,7 +297,17 @@ public class GameManager : MonoBehaviour
                 lbl = "MISS";
                 col = CM;
                 sfx.PlayOneShot(sMiss);
+=======
+                hits++; combo++; score += 300 + combo * 12; lbl = "PERFECT!"; col = CP; sfx.PlayOneShot(sPerfect); 
+                BumpCombo(); break;
+            case HitResult.Good:
+                hits++; combo++; score += 100 + combo * 4; lbl = "GOOD"; col = CG; sfx.PlayOneShot(sGood); 
+                BumpCombo(); break;
+            default:
+                combo = 0; hp = Mathf.Max(0f, hp - 10f); lbl = "MISS"; col = CM; sfx.PlayOneShot(sMiss);
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
                 CameraShake.Instance?.Shake(.2f, .1f);
+                comboFadeTimer = 0;
                 if (hp <= 0f) { GameOver(); return; }
                 break;
         }
@@ -220,6 +315,7 @@ public class GameManager : MonoBehaviour
         ShowResult(lbl, col);
     }
 
+<<<<<<< HEAD
     public void ApplySpamPenalty()
     {
         if (!alive) return;
@@ -235,24 +331,58 @@ public class GameManager : MonoBehaviour
         {
             GameOver();
         }
+=======
+    void BumpCombo()
+    {
+        if (combo < 2) return;
+        comboTxt.text = "x" + combo;
+        comboFadeTimer = comboFadeDelay;
+        comboTxt.color = GetHDR(CYAN);
+        if (comboBumpCo != null) StopCoroutine(comboBumpCo);
+        comboBumpCo = StartCoroutine(ComboHeartbeat());
+    }
+
+    IEnumerator ComboHeartbeat()
+    {
+        float t = 0, dur = 0.08f;
+        while(t < dur) {
+            t += Time.deltaTime;
+            comboTxt.transform.localScale = Vector3.Lerp(comboBaseScale, comboBaseScale * 1.3f, t/dur);
+            yield return null;
+        }
+        t = 0;
+        while(t < dur) {
+            t += Time.deltaTime;
+            comboTxt.transform.localScale = Vector3.Lerp(comboBaseScale * 1.3f, comboBaseScale, t/dur);
+            yield return null;
+        }
+        comboTxt.transform.localScale = comboBaseScale;
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
     }
 
     void GameOver()
     {
         alive = false; music.Stop();
-        TileSpawner.Instance.StopSpawning();
-        TrackController.Instance.StopRotating();
+        if(TileSpawner.Instance != null) TileSpawner.Instance.StopSpawning();
+        if(TrackController.Instance != null) TrackController.Instance.StopRotating();
+        
         float acc = total > 0 ? (float)hits / total * 100f : 0f;
+<<<<<<< HEAD
 
+=======
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
         goScore.text = score.ToString("N0");
         goAcc.text = $"{acc:F1}%";
         goCombo.text = "x" + maxCombo;
 
         goPanel.SetActive(true);
+<<<<<<< HEAD
         HighScoreManager.Instance?.TrySubmitScore(currentMode, score);
         float accVal = total > 0 ? (float)hits / total * 100f : 0f;
         LeaderboardManager.Instance?.TrySubmit(currentMode.ToString(), score, maxCombo, accVal);
         if (lbPanel != null) LeaderboardManager.Instance?.BuildLeaderboardUI(lbPanel, currentMode.ToString());
+=======
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
     }
 
     void TogglePause()
@@ -264,16 +394,13 @@ public class GameManager : MonoBehaviour
 
     public void Restart() { Time.timeScale = 1f; SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex); }
     public void MainMenu() { Time.timeScale = 1f; SceneManager.LoadScene("MainMenu"); }
-    public bool IsGameActive() => alive;
 
     void RefreshHUD()
     {
-        scoreTxt.text = score.ToString("N0");
+        if(scoreTxt) scoreTxt.text = score.ToString("N0");
         float acc = total > 0 ? (float)hits / total * 100f : 100f;
-        accTxt.text = $"{acc:F1}%";
-        hpTxt.text = "\u2665 " + (int)hp;
-        comboTxt.text = combo > 1 ? "x" + combo : "";
-        if (combo > 1) comboTxt.color = Color.Lerp(CYAN, MAGENTA, Mathf.Sin(Time.time * 7f) * .5f + .5f);
+        if(accTxt) accTxt.text = $"{acc:F1}%";
+        if(hpTxt) hpTxt.text = "\u2665 " + (int)hp;
     }
 
     void ShowResult(string lbl, Color col) { if (resultCo != null) StopCoroutine(resultCo); resultCo = StartCoroutine(ResultAnim(lbl, col)); }
@@ -284,7 +411,8 @@ public class GameManager : MonoBehaviour
         float t = 0f;
         while (t < 0.55f)
         {
-            t += Time.deltaTime; resultTxt.color = new Color(col.r, col.g, col.b, 1f - t / 0.55f);
+            t += Time.deltaTime; 
+            resultTxt.color = new Color(col.r * glowIntensity, col.g * glowIntensity, col.b * glowIntensity, 1f - t / 0.55f);
             resultTxt.transform.localScale = Vector3.one * Mathf.Lerp(1.4f, 1f, Mathf.Min(t / .18f, 1f)); yield return null;
         }
         resultTxt.text = "";
@@ -292,12 +420,28 @@ public class GameManager : MonoBehaviour
 
     void BuildUI()
     {
+        [ContextMenu("Show UI in Editor")]
+    void ShowUIInEditor()
+    {
+        // 1. Clean up any old canvases so we don't accidentally create 10 of them
+        GameObject oldCanvas = GameObject.Find("_Canvas");
+        if (oldCanvas != null) 
+        {
+            DestroyImmediate(oldCanvas);
+        }
+
+        // 2. Run your existing UI code!
+        BuildUI();
+    }
         var cgo = new GameObject("_Canvas");
         var cv = cgo.AddComponent<Canvas>();
+<<<<<<< HEAD
 
+=======
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
         cv.renderMode = RenderMode.ScreenSpaceCamera;
         cv.worldCamera = Camera.main;
-        cv.planeDistance = 5f;
+        cv.planeDistance = 2f; 
         cv.sortingOrder = 20;
 
         var sc = cgo.AddComponent<CanvasScaler>(); sc.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -305,20 +449,23 @@ public class GameManager : MonoBehaviour
         cgo.AddComponent<GraphicRaycaster>();
 
         scoreTxt = T(cgo, "0", 52, new Vector2(24, -20), A(0, 1), A(0, 1), TextAlignmentOptions.TopLeft);
-        scoreTxt.color = Color.white; scoreTxt.fontStyle = FontStyles.Bold;
-
         hpTxt = T(cgo, "\u2665 100", 28, new Vector2(0, -20), A(.5f, 1), A(.5f, 1), TextAlignmentOptions.Center);
-        hpTxt.color = new Color(1f, .35f, .55f);
-
+        hpTxt.color = GetHDR(new Color(1f, .2f, .4f));
+        
         accTxt = T(cgo, "100.0%", 26, new Vector2(-20, -20), A(1, 1), A(1, 1), TextAlignmentOptions.TopRight);
-        accTxt.color = CYAN;
+        accTxt.color = GetHDR(CYAN);
 
-        comboTxt = T(cgo, "", 72, new Vector2(0, 80), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        comboTxt.color = CYAN; comboTxt.fontStyle = FontStyles.Bold;
+        comboTxt = T(cgo, "", 75, new Vector2(0, 120), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
+        comboTxt.color = new Color(CYAN.r, CYAN.g, CYAN.b, 0f);
+        comboTxt.fontStyle = FontStyles.Bold | FontStyles.Italic;
+        comboBaseScale = comboTxt.transform.localScale;
 
         resultTxt = T(cgo, "", 44, new Vector2(0, 10), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        resultTxt.fontStyle = FontStyles.Bold;
+        
+        var modeLbl = T(cgo, "SHIFTNEON", 18, new Vector2(16, 50), A(0, 0), A(0, 0), TextAlignmentOptions.BottomLeft);
+        modeLbl.color = GetHDR(CYAN); 
 
+<<<<<<< HEAD
         var modeLbl = T(cgo, "NEON SHIFT", 14, new Vector2(16, 50), A(0, 0), A(0, 0), TextAlignmentOptions.BottomLeft);
         modeLbl.color = GetHDR(CYAN); modeLbl.fontStyle = FontStyles.Bold;
         var diffLbl = T(cgo, "DIFFICULTY: " + currentMode.ToString().ToUpper(), 11, new Vector2(16, 34), A(0, 0), A(0, 0), TextAlignmentOptions.BottomLeft);
@@ -329,8 +476,12 @@ public class GameManager : MonoBehaviour
 
         goPanel = Panel(cgo, new Color(.02f, .02f, .05f, .95f));
 
+=======
+        // Game Over Panel
+        goPanel = Panel(cgo, new Color(.02f, .02f, .05f, .95f));
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
         var goTitle = T(goPanel, "GAME OVER", 88, new Vector2(0, 200), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        goTitle.color = GetHDR(new Color(1f, .15f, .25f)); goTitle.fontStyle = FontStyles.Bold | FontStyles.Italic;
+        goTitle.color = GetHDR(new Color(1f, .15f, .25f));
 
         var statsBox = new GameObject("StatsBox"); statsBox.transform.SetParent(goPanel.transform, false);
         var sBoxRt = statsBox.AddComponent<RectTransform>(); sBoxRt.anchorMin = sBoxRt.anchorMax = A(0.5f, 0.5f);
@@ -340,6 +491,7 @@ public class GameManager : MonoBehaviour
         NeonLine(statsBox, new Vector2(-375, 70), new Vector2(375, 70), GetHDR(CYAN), 1f);
         NeonLine(statsBox, new Vector2(-375, -70), new Vector2(375, -70), GetHDR(CYAN), 1f);
 
+<<<<<<< HEAD
         NeonLine(statsBox, new Vector2(-125, 50), new Vector2(-125, -50), GetHDR(CYAN), 0.5f);
         NeonLine(statsBox, new Vector2(125, 50), new Vector2(125, -50), GetHDR(CYAN), 0.5f);
 
@@ -408,6 +560,31 @@ public class GameManager : MonoBehaviour
     IEnumerator KeepPauseScore(TextMeshProUGUI t) { while (true) { if (t) t.text = score.ToString("N0"); yield return new WaitForSecondsRealtime(.1f); } }
     IEnumerator KeepPauseCombo(TextMeshProUGUI t) { while (true) { if (t) t.text = "x" + maxCombo; yield return new WaitForSecondsRealtime(.1f); } }
 
+=======
+        goScore = T(statsBox, "0", 56, new Vector2(-250, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
+        goScore.color = GetHDR(CP);
+        goAcc = T(statsBox, "0.0%", 56, new Vector2(0, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
+        goAcc.color = GetHDR(CG);
+        goCombo = T(statsBox, "x0", 56, new Vector2(250, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
+        goCombo.color = GetHDR(CYAN);
+
+        NeonBtn(goPanel, "RETRY", CYAN, new Vector2(-160, -95), () => Restart());
+        NeonBtn(goPanel, "MENU", MAGENTA, new Vector2(160, -95), () => MainMenu());
+
+        // --- UPDATED PAUSE PANEL (ADDED REPLAY) ---
+        pausePanel = Panel(cgo, new Color(.01f, .02f, .08f, .93f));
+        var pTitle = T(pausePanel, "PAUSED", 90, new Vector2(0, 210), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
+        pTitle.color = GetHDR(CYAN);
+        
+        PauseBtn(pausePanel, "RESUME", CYAN, new Vector2(0, 60), () => TogglePause());
+        PauseBtn(pausePanel, "REPLAY", CP, new Vector2(0, -20), () => Restart()); // <-- NEW BUTTON HERE
+        PauseBtn(pausePanel, "QUIT", CM, new Vector2(0, -100), () => MainMenu());
+
+        goPanel.SetActive(false);
+        pausePanel.SetActive(false);
+    }
+
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
     static Vector2 A(float x, float y) => new Vector2(x, y);
 
     TextMeshProUGUI T(GameObject p, string txt, int sz, Vector2 pos, Vector2 aMin, Vector2 aMax, TextAlignmentOptions al)
@@ -415,7 +592,10 @@ public class GameManager : MonoBehaviour
         var go = new GameObject("_T"); go.transform.SetParent(p.transform, false);
         var rt = go.AddComponent<RectTransform>(); rt.anchorMin = aMin; rt.anchorMax = aMax;
         rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(800, 120);
-        var t = go.AddComponent<TextMeshProUGUI>(); t.text = txt; t.fontSize = sz; t.alignment = al; t.color = Color.white;
+        var t = go.AddComponent<TextMeshProUGUI>(); 
+        t.text = txt; t.fontSize = sz; t.alignment = al; 
+        t.color = Color.white;
+        t.extraPadding = true; 
         return t;
     }
 
@@ -430,11 +610,10 @@ public class GameManager : MonoBehaviour
     {
         var go = new GameObject("_L"); go.transform.SetParent(p.transform, false);
         var rt = go.AddComponent<RectTransform>(); rt.anchorMin = rt.anchorMax = A(.5f, .5f);
-        Vector2 mid = (from + to) / 2f; rt.anchoredPosition = mid;
-        rt.sizeDelta = new Vector2(Vector2.Distance(from, to), 1.5f);
-        float ang = Mathf.Atan2(to.y - from.y, to.x - from.x) * Mathf.Rad2Deg;
-        rt.localRotation = Quaternion.Euler(0, 0, ang);
-        var img = go.AddComponent<Image>(); img.color = new Color(col.r, col.g, col.b, alpha);
+        rt.anchoredPosition = (from + to) / 2f;
+        rt.sizeDelta = new Vector2(Vector2.Distance(from, to), 2f);
+        rt.localRotation = Quaternion.Euler(0, 0, Mathf.Atan2(to.y - from.y, to.x - from.x) * Mathf.Rad2Deg);
+        go.AddComponent<Image>().color = new Color(col.r, col.g, col.b, alpha);
     }
 
     void NeonBtn(GameObject p, string lbl, Color col, Vector2 pos, UnityEngine.Events.UnityAction cb)
@@ -442,12 +621,23 @@ public class GameManager : MonoBehaviour
         var go = new GameObject("_B"); go.transform.SetParent(p.transform, false);
         var rt = go.AddComponent<RectTransform>(); rt.anchorMin = rt.anchorMax = A(.5f, .5f);
         rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(250, 54);
+<<<<<<< HEAD
         var img = go.AddComponent<Image>(); img.color = new Color(col.r * .08f, col.g * .08f, col.b * .08f, .9f);
 
         AddBorder(go, GetHDR(col), 1f);
         var btn = go.AddComponent<Button>(); btn.targetGraphic = img; btn.onClick.AddListener(cb);
 
         var tgo = Label(go, lbl, 26, GetHDR(col));
+=======
+        var img = go.AddComponent<Image>(); img.color = new Color(col.r * .1f, col.g * .1f, col.b * .1f, .9f);
+        go.AddComponent<Button>().onClick.AddListener(cb);
+        Label(go, lbl, 26, GetHDR(col));
+        
+        var bdr = new GameObject("Bdr"); bdr.transform.SetParent(go.transform, false);
+        var brt = bdr.AddComponent<RectTransform>(); brt.anchorMin = Vector2.zero; brt.anchorMax = Vector2.one;
+        brt.sizeDelta = Vector2.zero;
+        var outl = bdr.AddComponent<Outline>(); outl.effectColor = GetHDR(col); outl.effectDistance = new Vector2(2, -2);
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
     }
 
     void PauseBtn(GameObject p, string lbl, Color col, Vector2 pos, UnityEngine.Events.UnityAction cb)
@@ -455,6 +645,7 @@ public class GameManager : MonoBehaviour
         var go = new GameObject("_PB"); go.transform.SetParent(p.transform, false);
         var rt = go.AddComponent<RectTransform>(); rt.anchorMin = rt.anchorMax = A(.5f, .5f);
         rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(440, 60);
+<<<<<<< HEAD
         var img = go.AddComponent<Image>(); img.color = new Color(col.r * .06f, col.g * .06f, col.b * .06f, .9f);
         AddBorder(go, col, .5f);
         var bar = new GameObject("Bar"); bar.transform.SetParent(go.transform, false);
@@ -472,13 +663,17 @@ public class GameManager : MonoBehaviour
         rt.offsetMin = new Vector2(-1, -1); rt.offsetMax = new Vector2(1, 1);
         var img = ov.AddComponent<Image>(); img.color = Color.clear;
         var O = go.AddComponent<Outline>(); O.effectColor = new Color(col.r, col.g, col.b, alpha); O.effectDistance = new Vector2(2, -2);
+=======
+        go.AddComponent<Image>().color = new Color(col.r * .1f, col.g * .1f, col.b * .1f, .9f);
+        go.AddComponent<Button>().onClick.AddListener(cb);
+        Label(go, lbl, 22, GetHDR(col));
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
     }
 
     GameObject Label(GameObject p, string txt, int sz, Color col)
     {
         var go = new GameObject("L"); go.transform.SetParent(p.transform, false);
         var rt = go.AddComponent<RectTransform>(); rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
-        rt.offsetMin = rt.offsetMax = Vector2.zero;
         var tmp = go.AddComponent<TextMeshProUGUI>(); tmp.text = txt; tmp.fontSize = sz;
         tmp.fontStyle = FontStyles.Bold; tmp.alignment = TextAlignmentOptions.Center; tmp.color = col;
         return go;
@@ -487,8 +682,7 @@ public class GameManager : MonoBehaviour
     AudioClip Beep(float freq, float dur, bool noise = false)
     {
         int sr = 44100, n = Mathf.RoundToInt(sr * dur); float[] d = new float[n];
-        for (int i = 0; i < n; i++)
-        {
+        for (int i = 0; i < n; i++) {
             float t = (float)i / sr; float e = Mathf.Exp(-t * 18f);
             d[i] = noise ? (Random.value * 2f - 1f) * e * .5f : Mathf.Sin(2f * Mathf.PI * freq * t) * e * .7f;
         }

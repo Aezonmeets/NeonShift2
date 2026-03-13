@@ -12,19 +12,26 @@ public class TileSpawner : MonoBehaviour
 
     // Beat detection
     [Header("Beat Sync")]
-    public float bpm = 120f;           // Set this to match your music
-    public bool useBeatSpawn = true;  // If false, falls back to interval-based
+    public float bpm = 120f;           
+    public bool useBeatSpawn = true;  
+
+    [Header("Endless Difficulty")]
+    public float bpmIncreaseRate = 0.5f; 
+    public float speedIncreaseRate = 0.05f;
 
     readonly List<Tile> activeTiles = new List<Tile>();
     Coroutine spawnCo;
     GameMode mode;
+    private bool isSpawning = false;
 
-    // Weighted lane patterns — varies spawning so it feels rhythmic
+    // --- NEW: This prevents tiles from being "sikit" (overlapping) ---
+    private float[] laneBlockedTimer = new float[4];
+
     static readonly int[][] Patterns = {
-        new[]{0},new[]{1},new[]{2},new[]{3},          // singles
+        new[]{0},new[]{1},new[]{2},new[]{3},           // singles
         new[]{0,2},new[]{1,3},new[]{0,3},              // doubles
         new[]{1,2},new[]{0,1},new[]{2,3},
-        new[]{0,1,2},new[]{1,2,3},                     // triples (rare)
+        new[]{0,1,2},new[]{1,2,3},                     // triples
     };
 
     void Awake() { if (Instance != null) { Destroy(gameObject); return; } Instance = this; }
@@ -34,6 +41,7 @@ public class TileSpawner : MonoBehaviour
         mode = m;
         switch (m)
         {
+<<<<<<< HEAD
             // Easy  → "Can't Stop the Feeling" Justin Timberlake (113 BPM)
             case GameMode.Easy:
                 spawnInterval = 60f / 113f; tileSpeed = 5f; bpm = 113f;
@@ -52,34 +60,72 @@ public class TileSpawner : MonoBehaviour
                 spawnInterval = 1.2f; tileSpeed = 5f; bpm = 90f;
                 endlessMode = true;
                 break;
+=======
+            case GameMode.Easy: spawnInterval = 1.3f; tileSpeed = 5f; bpm = 80f; endlessMode = false; break;
+            case GameMode.Medium: spawnInterval = 0.9f; tileSpeed = 7f; bpm = 110f; endlessMode = false; break;
+            case GameMode.Hard: spawnInterval = 0.55f; tileSpeed = 10f; bpm = 140f; endlessMode = false; break;
+            case GameMode.Endless: spawnInterval = 0.50f; tileSpeed = 11f; bpm = 145f; endlessMode = true; break;
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
         }
     }
 
-    public void BeginSpawning() { StopSpawning(); spawnCo = StartCoroutine(SpawnLoop()); }
-    public void StopSpawning() { if (spawnCo != null) StopCoroutine(spawnCo); }
+    public void BeginSpawning() 
+    { 
+        StopSpawning(); 
+        isSpawning = true;
+        
+        // Reset lane blockers when we start
+        for (int i = 0; i < 4; i++) laneBlockedTimer[i] = 0f;
+        
+        spawnCo = StartCoroutine(SpawnLoop()); 
+    }
+    
+    public void StopSpawning() 
+    { 
+        isSpawning = false;
+        if (spawnCo != null) StopCoroutine(spawnCo); 
+    }
+
+    void Update()
+    {
+        if (isSpawning && endlessMode)
+        {
+            bpm += bpmIncreaseRate * Time.deltaTime;       
+            tileSpeed += speedIncreaseRate * Time.deltaTime; 
+        }
+
+        // --- NEW: Count down the blocked lanes ---
+        for (int i = 0; i < 4; i++)
+        {
+            if (laneBlockedTimer[i] > 0)
+                laneBlockedTimer[i] -= Time.deltaTime;
+        }
+    }
 
     IEnumerator SpawnLoop()
     {
         var tc = TrackController.Instance;
 
-        // Pre-travel offset: tiles need time to travel from spawn to hit zone
-        // so we spawn early by travelTime = distance / speed
         float travelTime = tc != null
             ? Mathf.Abs(tc.spawnDist - tc.hitDist) / tileSpeed
             : 1.5f;
 
-        // Wait until the first beat lands on the receptor
         yield return new WaitForSeconds(Mathf.Max(0.1f, travelTime));
 
         int beatCount = 0;
 
         while (true)
         {
+            float beatInterval = 60f / bpm; 
+
             SpawnBeat(beatCount);
             beatCount++;
 
+<<<<<<< HEAD
             // Recalculate every beat — allows Endless mode to update BPM live
             float beatInterval = 60f / Mathf.Max(60f, bpm);
+=======
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
             yield return new WaitForSeconds(beatInterval);
         }
     }
@@ -88,6 +134,7 @@ public class TileSpawner : MonoBehaviour
     {
         if (!TrackController.Instance) return;
 
+<<<<<<< HEAD
         int inBar = beat % 4;
         int bar = beat / 4;
 
@@ -99,6 +146,9 @@ public class TileSpawner : MonoBehaviour
         // Hard (176 BPM, Runaway Baby): rockabilly — driving on 1&3 (kick),
         //   snare hits on 2&4, 16th-note fills every 2 bars
         // Endless: purely density-driven
+=======
+        int inBar = beat % 4;   
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
 
         bool spawnThis;
         switch (mode)
@@ -132,25 +182,47 @@ public class TileSpawner : MonoBehaviour
 
         if (!spawnThis) return;
 
+<<<<<<< HEAD
         // Long hold tile: every 2 bars on the downbeat (feels intentional)
         if (inBar == 0 && bar > 0 && bar % 2 == 0 && Random.value < 0.55f)
+=======
+        int bar = beat / 4;
+        if (inBar == 0 && bar > 0 && bar % 2 == 0 && Random.value < 0.60f)
+>>>>>>> 71d9f5dd2fc592f0e86bf73ee281f4d413a29569
         {
-            SpawnLongTile(Random.Range(0, 4));
+            // --- FIX: Only spawn a long tile in a lane that isn't currently blocked! ---
+            List<int> freeLanes = new List<int>();
+            for (int i = 0; i < 4; i++) 
+            {
+                if (laneBlockedTimer[i] <= 0f) freeLanes.Add(i);
+            }
+
+            if (freeLanes.Count > 0)
+            {
+                int chosenLane = freeLanes[Random.Range(0, freeLanes.Count)];
+                SpawnLongTile(chosenLane);
+            }
             return;
         }
 
         int[] lanes = PickPattern(inBar);
         foreach (int l in lanes)
-            SpawnNormalTile(l);
+        {
+            // --- FIX: Only spawn normal tiles if the lane isn't busy with a long tile! ---
+            if (laneBlockedTimer[l] <= 0f)
+            {
+                SpawnNormalTile(l);
+            }
+        }
     }
 
     int[] PickPattern(int inBar)
     {
         float multiChance = mode == GameMode.Easy ? 0.12f
                           : mode == GameMode.Medium ? 0.28f
-                          : mode == GameMode.Hard ? 0.48f : 0.32f;
+                          : mode == GameMode.Hard ? 0.48f 
+                          : 0.35f; 
 
-        // Downbeats (0,2) slightly more likely to be chords/doubles
         if (inBar == 0 || inBar == 2) multiChance += 0.10f;
 
         if (Random.value > multiChance)
@@ -173,11 +245,19 @@ public class TileSpawner : MonoBehaviour
     {
         var go = new GameObject("LongTile");
         var tile = go.AddComponent<Tile>();
-        float holdLen = Random.Range(2.5f, 5.0f); // longer hold tiles
+        
+        // --- FIX: Make the length scale with speed so they don't squish together ---
+        // This calculates how long the tile will take in seconds (0.5 to 1.2 seconds)
+        float holdTime = Random.Range(0.5f, 1.2f); 
+        float holdLen = holdTime * tileSpeed; 
+        
         tile.Init(lane, tileSpeed, true, holdLen);
         go.transform.position = TrackController.Instance.SpawnPos(lane);
         activeTiles.Add(tile);
         PlayerController.Instance?.RegisterTile(tile);
+
+        // --- FIX: Block this lane! No normal tiles can spawn here until the long tile is gone + a tiny gap ---
+        laneBlockedTimer[lane] = holdTime + 0.15f; 
     }
 
     public void RemoveTile(Tile t) => activeTiles.Remove(t);
