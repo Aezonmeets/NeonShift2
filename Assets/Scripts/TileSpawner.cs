@@ -1,5 +1,7 @@
-using UnityEngine;
+﻿using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 
 public class TileSpawner : MonoBehaviour
 {
@@ -7,343 +9,365 @@ public class TileSpawner : MonoBehaviour
 
     [HideInInspector] public float spawnInterval = 1.0f;
     [HideInInspector] public float tileSpeed = 7f;
+    [HideInInspector] public float bpm = 120f;
     [HideInInspector] public bool endlessMode = false;
-
-    // Beat detection
-    [Header("Beat Sync")]
-    public float bpm = 120f;
-
-    [Header("Audio Calibration")]
-    [Tooltip("If the tiles hit the line slightly AFTER the music beat, increase this number (e.g. 0.2). If they hit BEFORE, decrease it (-0.2).")]
-    public float trackOffset = 0.0f;
 
     readonly List<Tile> activeTiles = new List<Tile>();
     GameMode mode;
-
-    // Dynamic Beatmap Variables
-    string currentSong = "";
-    float spawnIntensity = 1.0f;
-
-    // Rhythm Engine Variables
     bool isSpawning = false;
-    float nextHitTime = 0f;
-    int beatCount = 0;
+    Coroutine spawnCo;
+    Coroutine endlessCo;
 
-    // Weighted lane patterns
-    static readonly int[][] Patterns = {
-        new[]{0},new[]{1},new[]{2},new[]{3},           // singles
-        new[]{0,2},new[]{1,3},new[]{0,3},              // doubles
-        new[]{1,2},new[]{0,1},new[]{2,3},
-        new[]{0,1,2},new[]{1,2,3},                     // triples (rare)
-    };
-
-    void Awake()
-    {
-        if (Instance != null) { Destroy(gameObject); return; }
-        Instance = this;
-    }
+    void Awake() { if (Instance != null) { Destroy(gameObject); return; } Instance = this; }
 
     public void Init(GameMode m)
     {
         mode = m;
         switch (m)
         {
-            case GameMode.Easy: tileSpeed = 5f; bpm = 100f; break;
-            case GameMode.Medium: tileSpeed = 7f; bpm = 115f; break;
-            case GameMode.Hard: tileSpeed = 10f; bpm = 176f; break;
-            case GameMode.Endless: tileSpeed = 5f; bpm = 90f; endlessMode = true; break;
+            case GameMode.Easy: tileSpeed = 5f; break;
+            case GameMode.Medium: tileSpeed = 7.5f; break;
+            case GameMode.Hard: tileSpeed = 11.5f; break;
+            case GameMode.Endless: tileSpeed = 6f; endlessMode = true; break;
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    //  CALLED BY GAMEMANAGER BEFORE EACH SONG
+    // ══════════════════════════════════════════════════════════════════
     public void SetDynamicBPM(string clipName)
     {
         if (mode == GameMode.Endless) return;
 
-        currentSong = clipName.ToLower();
-        spawnIntensity = 1.0f;
-        beatCount = 0;
+        if (spawnCo != null) { StopCoroutine(spawnCo); spawnCo = null; }
 
-        // Custom MP3 Offsets
-        trackOffset = 0.0f;
-        if (currentSong.Contains("numb")) trackOffset = 0.15f;
-        if (currentSong.Contains("overpass")) trackOffset = 0.1f;
-        if (currentSong.Contains("pyramid")) trackOffset = 0.2f;
-        if (currentSong.Contains("baby shark")) trackOffset = 0.1f;
-        if (currentSong.Contains("again")) trackOffset = 0.3f;
-
-        nextHitTime = trackOffset;
-        UpdateSongTimestamps(0f);
-
-        // --- SMART FAST-FORWARD FIX ---
-        // Calculate exactly how many seconds a tile takes to fall
-        float travelTime = TrackController.Instance != null
-            ? Mathf.Abs(TrackController.Instance.spawnDist - TrackController.Instance.hitDist) / tileSpeed
-            : 1.5f;
-
-        // Skip any beats that are physically impossible to spawn because the song just started!
-        while (nextHitTime < travelTime)
+        AudioClip clip = LoadClip(clipName);
+        if (clip == null)
         {
-            nextHitTime += (60f / bpm);
-            beatCount++;
+            Debug.LogWarning($"[TileSpawner] Clip '{clipName}' not found — using default BPM.");
+            bpm = DetectBPM(clipName);
+            return;
         }
 
-        Debug.Log($"[TileSpawner] Loaded '{currentSong}'. Fast-forwarded to beat {beatCount} to prevent note stacking!");
+        bpm = DetectBPM(clip.name);
+        Debug.Log($"[TileSpawner] '{clip.name}' | BPM={bpm:F0}");
+
+        sectionEnergy = BuildSectionEnergy(clip, out sectionBlockSec);
+        clipLength = clip.length;
+
+        if (isSpawning)
+            spawnCo = StartCoroutine(BeatSpawnLoop());
     }
 
+    // ── Section energy (one float per ~0.5s of audio) ─────────────────
+    float[] sectionEnergy;
+    float sectionBlockSec;
+    float clipLength;
+
+    float[] BuildSectionEnergy(AudioClip clip, out float blockSec)
+    {
+        float[] samples = new float[clip.samples * clip.channels];
+        clip.GetData(samples, 0);
+
+        int sr = clip.frequency * clip.channels;
+        blockSec = 0.5f;
+        int blockSize = (int)(sr * blockSec);
+        int blocks = samples.Length / blockSize;
+        float[] energy = new float[blocks];
+
+        for (int b = 0; b < blocks; b++)
+        {
+            float sum = 0f;
+            for (int i = 0; i < blockSize; i++)
+                sum += samples[b * blockSize + i] * samples[b * blockSize + i];
+            energy[b] = Mathf.Sqrt(sum / blockSize);
+        }
+
+        for (int b = 1; b < blocks - 1; b++)
+            energy[b] = (energy[b - 1] + energy[b] + energy[b + 1]) / 3f;
+
+        return energy;
+    }
+
+    float GetSectionIntensity(float musicTime)
+    {
+        if (sectionEnergy == null || sectionEnergy.Length == 0) return 0.5f;
+        int idx = Mathf.Clamp((int)(musicTime / sectionBlockSec), 0, sectionEnergy.Length - 1);
+
+        float val = sectionEnergy[idx];
+        float min = sectionEnergy.Min();
+        float max = sectionEnergy.Max();
+        return max > min ? Mathf.Clamp01((val - min) / (max - min)) : 0.5f;
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    //  BEAT SPAWN LOOP
+    // ══════════════════════════════════════════════════════════════════
+    IEnumerator BeatSpawnLoop()
+    {
+        float beatSec = 60f / bpm;
+        float offset = DetectOffset(bpm);
+        float travelTime = CalcTravelTime();
+
+        yield return new WaitUntil(() =>
+            GameManager.Instance != null && GameManager.Instance.GetMusicTime() > 0.01f);
+
+        yield return new WaitUntil(() =>
+            GameManager.Instance.GetMusicTime() >= offset);
+
+        int beat = 0;
+        float[] laneNextFree = new float[4];
+        int lastLane = -1;
+        int lastLaneRun = 0;
+
+        while (isSpawning && GameManager.Instance != null && GameManager.Instance.IsGameActive())
+        {
+            float musicNow = GameManager.Instance.GetMusicTime();
+            float intensity = GetSectionIntensity(musicNow);
+
+            int inBar = beat % 4;
+
+            // ── SPAWN DECISION ─────────────────────────────────────────
+            bool doSpawn;
+            switch (mode)
+            {
+                case GameMode.Easy:
+                    doSpawn = (inBar == 0 || inBar == 2) && intensity > 0.20f;
+                    break;
+                case GameMode.Medium:
+                    doSpawn = (inBar == 0 || inBar == 2)
+                           || (inBar == 1 && intensity > 0.60f)
+                           || (inBar == 3 && intensity > 0.70f);
+                    break;
+                default: // Hard
+                    // Raised threshold to 0.40f for off-beats to give verses more breathing room
+                    doSpawn = (inBar == 0 || inBar == 2) || (intensity > 0.40f);
+                    break;
+            }
+
+            if (doSpawn)
+            {
+                int tileCount = 1;
+                bool spawnOffBeat = false;
+
+                if (mode == GameMode.Medium && intensity > 0.75f && inBar == 0) tileCount = 2;
+
+                if (mode == GameMode.Hard)
+                {
+                    // 1. Doubles ONLY on Beat 1, raised threshold to 0.75f (only heavy drops)
+                    if (intensity > 0.75f && inBar == 0)
+                        tileCount = 2;
+
+                    // 2. Off-beats on Beats 2 & 4. Raised threshold to 0.85f so it only 
+                    // triggers at the absolute peak of the song, preventing stamina drain.
+                    if (intensity > 0.85f && (inBar == 1 || inBar == 3) && tileCount == 1)
+                        spawnOffBeat = true;
+                }
+
+                bool spawnLong = false;
+                float holdLen = 0f;
+                float holdBase = Mathf.Lerp(2.5f, 1.2f, Mathf.Clamp01((bpm - 60f) / 140f));
+
+                if (inBar == 0 && beat > 0 && beat % 8 == 0 && intensity > 0.65f && Random.value > 0.60f)
+                {
+                    spawnLong = true;
+                    holdLen = holdBase;
+                    tileCount = Mathf.Min(tileCount, 2);
+                }
+
+                // ── Lane selection ─────────────────────────────────────
+                List<int> spawnedLanes = new List<int>();
+
+                if (spawnLong)
+                {
+                    int lane = PickFreeLane(laneNextFree, musicNow);
+                    if (lane >= 0)
+                    {
+                        laneNextFree[lane] = musicNow + holdLen;
+                        SpawnLongTile(lane, holdLen);
+                        spawnedLanes.Add(lane);
+                    }
+                }
+                else
+                {
+                    var lanes = GetFreeLanes(laneNextFree, musicNow, tileCount);
+                    if (tileCount == 1 && lastLaneRun >= 2 && lanes.Count > 1) lanes.Remove(lastLane);
+
+                    float gap = beatSec * 0.4f;
+                    foreach (int l in lanes)
+                    {
+                        laneNextFree[l] = musicNow + gap;
+                        SpawnNormalTile(l);
+                        spawnedLanes.Add(l);
+                    }
+
+                    if (lanes.Count == 1)
+                    {
+                        if (lanes[0] == lastLane) lastLaneRun++;
+                        else { lastLane = lanes[0]; lastLaneRun = 1; }
+                    }
+                    else { lastLane = -1; lastLaneRun = 0; }
+                }
+
+                // ── SPAWN THE EXTRA "FASTER" TILE ──
+                if (spawnOffBeat && spawnedLanes.Count > 0)
+                {
+                    StartCoroutine(SpawnDelayedTile(beatSec * 0.5f, spawnedLanes[0]));
+                }
+            }
+
+            beat++;
+
+            float nextBeatTime = offset + beat * beatSec;
+            yield return new WaitUntil(() =>
+                GameManager.Instance == null
+                || !GameManager.Instance.IsGameActive()
+                || GameManager.Instance.GetMusicTime() >= nextBeatTime);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    //  SPAWNING CONTROL
+    // ══════════════════════════════════════════════════════════════════
     public void BeginSpawning()
     {
-        if (mode == GameMode.Endless)
-        {
-            beatCount = 0;
-            nextHitTime = 0f;
-        }
         isSpawning = true;
+        if (endlessMode)
+        {
+            endlessCo = StartCoroutine(EndlessLoop());
+        }
+        else if (sectionEnergy != null)
+        {
+            spawnCo = StartCoroutine(BeatSpawnLoop());
+        }
     }
 
     public void StopSpawning()
     {
         isSpawning = false;
+        if (spawnCo != null) { StopCoroutine(spawnCo); spawnCo = null; }
+        if (endlessCo != null) { StopCoroutine(endlessCo); endlessCo = null; }
     }
 
-    void Update()
+    // ── Endless: coroutine with live BPM ─────────────────────────────
+    IEnumerator EndlessLoop()
     {
-        if (!isSpawning || GameManager.Instance == null || !GameManager.Instance.IsGameActive()) return;
-
-        float musicTime = GameManager.Instance.GetMusicTime();
-        if (musicTime == 0f && mode != GameMode.Endless) return;
-
-        if (mode != GameMode.Endless)
+        yield return new WaitForSeconds(1.5f);
+        int beat = 0;
+        while (isSpawning)
         {
-            UpdateSongTimestamps(musicTime);
-        }
-
-        float travelTime = TrackController.Instance != null
-            ? Mathf.Abs(TrackController.Instance.spawnDist - TrackController.Instance.hitDist) / tileSpeed
-            : 1.5f;
-
-        // Fire a note exactly when it needs to leave the spawn point to hit the line on time
-        while (musicTime >= (nextHitTime - travelTime))
-        {
-            SpawnBeat(beatCount);
-            beatCount++;
-            nextHitTime += (60f / bpm);
-        }
-    }
-
-    void UpdateSongTimestamps(float currentTime)
-    {
-        if (mode == GameMode.Easy) UpdateEasyBeatmap(currentTime);
-        else if (mode == GameMode.Medium) UpdateMediumBeatmap(currentTime);
-        else if (mode == GameMode.Hard) UpdateHardBeatmap(currentTime);
-    }
-
-    void UpdateEasyBeatmap(float currentTime)
-    {
-        if (currentSong.Contains("tyler") || currentSong.Contains("again"))
-        {
-            if (currentTime < 133f) { bpm = 79f; tileSpeed = 4.5f; spawnIntensity = 0.4f; }
-            else { bpm = 135f; tileSpeed = 7.5f; spawnIntensity = 1.0f; }
-        }
-        else if (currentSong.Contains("lau") || currentSong.Contains("start"))
-        {
-            if (currentTime < 42f) { bpm = 82f; tileSpeed = 4.5f; spawnIntensity = 0.5f; }
-            else if (currentTime < 112f) { bpm = 82f; tileSpeed = 5.5f; spawnIntensity = 0.8f; }
-            else { bpm = 164f; tileSpeed = 7.0f; spawnIntensity = 1.0f; }
-        }
-        else if (currentSong.Contains("upto") || currentSong.Contains("funk"))
-        {
-            if (currentTime < 64f) { bpm = 115f; tileSpeed = 5.5f; spawnIntensity = 0.6f; }
-            else if (currentTime < 145f) { bpm = 115f; tileSpeed = 7.5f; spawnIntensity = 1.0f; }
-            else if (currentTime < 204f) { bpm = 115f; tileSpeed = 4.0f; spawnIntensity = 0.2f; }
-            else { bpm = 115f; tileSpeed = 8.5f; spawnIntensity = 1.0f; }
-        }
-    }
-
-    void UpdateMediumBeatmap(float currentTime)
-    {
-        if (currentSong.Contains("arian"))
-        {
-            if (currentTime < 15f) { bpm = 108f; tileSpeed = 6.0f; spawnIntensity = 0.3f; }
-            else if (currentTime < 50f) { bpm = 108f; tileSpeed = 6.5f; spawnIntensity = 0.7f; }
-            else { bpm = 108f; tileSpeed = 8.0f; spawnIntensity = 1.0f; }
-        }
-        else if (currentSong.Contains("baby"))
-        {
-            if (currentTime < 45f) { bpm = 115f; tileSpeed = 6.5f; spawnIntensity = 0.5f; }
-            else if (currentTime < 85f) { bpm = 125f; tileSpeed = 7.5f; spawnIntensity = 0.8f; }
-            else { bpm = 135f; tileSpeed = 8.5f; spawnIntensity = 1.0f; }
-        }
-        else if (currentSong.Contains("numb"))
-        {
-            if (currentTime < 21f) { bpm = 110f; tileSpeed = 6.0f; spawnIntensity = 0.3f; }
-            else if (currentTime < 46f) { bpm = 110f; tileSpeed = 6.5f; spawnIntensity = 0.6f; }
-            else if (currentTime < 76f) { bpm = 110f; tileSpeed = 8.0f; spawnIntensity = 1.0f; }
-            else if (currentTime < 101f) { bpm = 110f; tileSpeed = 6.5f; spawnIntensity = 0.6f; }
-            else if (currentTime < 125f) { bpm = 110f; tileSpeed = 8.0f; spawnIntensity = 1.0f; }
-            else if (currentTime < 145f) { bpm = 110f; tileSpeed = 7.0f; spawnIntensity = 0.6f; }
-            else { bpm = 110f; tileSpeed = 8.5f; spawnIntensity = 1.0f; }
-        }
-    }
-
-    void UpdateHardBeatmap(float currentTime)
-    {
-        if (currentSong.Contains("chari") || currentSong.Contains("pyramid"))
-        {
-            bpm = 188f;
-            // 0:00 - Intro 
-            if (currentTime < 13f) { tileSpeed = 6.0f; spawnIntensity = 0.2f; }
-            // 0:13 - Verse 1 
-            else if (currentTime < 38f) { tileSpeed = 7.5f; spawnIntensity = 0.4f; }
-            // 0:38 - Pre-Chorus (Building)
-            else if (currentTime < 63f) { tileSpeed = 8.5f; spawnIntensity = 0.6f; }
-            // 1:03 - Chorus 1 (Big, but not max)
-            else if (currentTime < 88f) { tileSpeed = 11.0f; spawnIntensity = 0.85f; }
-            // 1:28 - Verse 2 / Iyaz Rap (Pull back)
-            else if (currentTime < 114f) { tileSpeed = 9.5f; spawnIntensity = 0.65f; }
-            // 1:54 - Pre-Chorus 2
-            else if (currentTime < 127f) { tileSpeed = 10.0f; spawnIntensity = 0.75f; }
-            // 2:07 - Chorus 2 (Pushing harder)
-            else if (currentTime < 152f) { tileSpeed = 11.5f; spawnIntensity = 0.9f; }
-            // 2:32 - Bridge Part 1 (The Void - Drop the intensity to build tension)
-            else if (currentTime < 164f) { tileSpeed = 7.0f; spawnIntensity = 0.3f; }
-            // 2:44 - Bridge Part 2 (The Build - Scaling slowly to medium)
-            else if (currentTime < 177f) { tileSpeed = 9.0f; spawnIntensity = 0.6f; }
-            // 2:57 - FINAL CHORUS - BOOM! (Max Speed & Flood Drop)
-            else { tileSpeed = 13.0f; spawnIntensity = 1.0f; }
-        }
-        else if (currentSong.Contains("runa") || currentSong.Contains("baby"))
-        {
-            bpm = 164f;
-            if (currentTime < 34f) { tileSpeed = 10.5f; spawnIntensity = 0.85f; }
-            else if (currentTime < 57f) { tileSpeed = 11.5f; spawnIntensity = 1.0f; }
-            else if (currentTime < 75f) { tileSpeed = 12.5f; spawnIntensity = 1.0f; }
-            else if (currentTime < 130f) { tileSpeed = 6.0f; spawnIntensity = 0.25f; }
-            else { tileSpeed = 13.0f; spawnIntensity = 1.0f; }
-        }
-        else if (currentSong.Contains("ed s") || currentSong.Contains("overpass"))
-        {
-            bpm = 176f;
-            if (currentTime < 48f) { tileSpeed = 11.0f; spawnIntensity = 0.85f; }
-            else if (currentTime < 70f) { tileSpeed = 12.0f; spawnIntensity = 1.0f; }
-            else if (currentTime < 91f) { tileSpeed = 13.0f; spawnIntensity = 1.0f; }
-            else if (currentTime < 120f) { tileSpeed = 10.0f; spawnIntensity = 0.7f; }
-            else { tileSpeed = 13.5f; spawnIntensity = 1.0f; }
-        }
-        else if (currentSong.Contains("blueprint") || currentSong.Contains("skai"))
-        {
-            bpm = 176f;
-            // 0:00 - Intro (Calm traditional sample)
-            if (currentTime < 13f) { tileSpeed = 6.0f; spawnIntensity = 0.2f; }
-            // 0:13 - Verse 1 (Beat drops, solid rhythm)
-            else if (currentTime < 51f) { tileSpeed = 10.0f; spawnIntensity = 0.7f; }
-            // 0:51 - Chorus 1 (First big hook)
-            else if (currentTime < 77f) { tileSpeed = 12.0f; spawnIntensity = 1.0f; }
-            // 1:17 - Verse 2 (Slight breather)
-            else if (currentTime < 102f) { tileSpeed = 10.5f; spawnIntensity = 0.75f; }
-            // 1:42 - Chorus 2 (Final massive hook)
-            else if (currentTime < 127f) { tileSpeed = 12.5f; spawnIntensity = 1.0f; }
-            // 2:07 - Outro (Beat stops, coast to the end)
-            else { tileSpeed = 5.0f; spawnIntensity = 0.1f; }
-        }
-    }
-
-    // --- DEAD AIR FIX ---
-    void SpawnBeat(int beat)
-    {
-        if (!TrackController.Instance) return;
-
-        int inBar = beat % 4; // Tracks the 4 beats in a measure (0, 1, 2, 3)
-        int bar = beat / 4;
-
-        bool spawnThis = false;
-
-        switch (mode)
-        {
-            case GameMode.Easy:
-                spawnThis = (inBar == 0 || inBar == 2);
-                break;
-            case GameMode.Medium:
-                spawnThis = (inBar == 0 || inBar == 2) || (inBar == 1 && Random.value < 0.4f);
-                break;
-            case GameMode.Hard:
-                // INTRO / QUIET: Always spawns a steady 2 notes per bar (No Dead Air!)
-                if (spawnIntensity <= 0.3f)
-                {
-                    spawnThis = (inBar == 0 || inBar == 2);
-                }
-                // VERSE / BUILD UP: Spawns downbeats + 75% of the off-beats
-                else if (spawnIntensity <= 0.7f)
-                {
-                    spawnThis = (inBar == 0 || inBar == 2) || Random.value < 0.75f;
-                }
-                // DROP / CLIMAX: Relentless notes
+            float density = Mathf.Clamp01((tileSpeed - 5f) / 11f);
+            int inBar = beat % 4;
+            bool spawn = (inBar == 0 || inBar == 2) || Random.value < 0.35f + density * 0.3f;
+            if (spawn)
+            {
+                if (beat > 4 && beat % 8 == 0 && Random.value < 0.4f + density * 0.2f)
+                    SpawnLongTile(Random.Range(0, 4), Random.Range(1.5f, 3.5f));
                 else
                 {
-                    spawnThis = Random.value < 0.95f;
-                }
-
-                // Double Chords during Heavy Drops
-                if (spawnThis && (inBar == 0 || inBar == 2) && spawnIntensity > 0.7f && Random.value < 0.60f)
-                {
                     SpawnNormalTile(Random.Range(0, 4));
-                    SpawnNormalTile(Random.Range(0, 4));
-                    return;
+                    if (density > 0.5f && Random.value < density * 0.35f)
+                        SpawnNormalTile(Random.Range(0, 4));
                 }
-                break;
-            case GameMode.Endless:
-                spawnThis = (inBar == 0 || inBar == 2) || Random.value < 0.45f;
-                break;
+            }
+            beat++;
+            yield return new WaitForSeconds(60f / Mathf.Max(60f, bpm));
         }
-
-        if (!spawnThis) return;
-
-        // Long Hold Tiles
-        if (inBar == 0 && bar > 0 && bar % 2 == 0 && Random.value < 0.55f && spawnIntensity > 0.5f)
-        {
-            SpawnLongTile(Random.Range(0, 4));
-            return;
-        }
-
-        int[] lanes = PickPattern(inBar);
-        foreach (int l in lanes)
-            SpawnNormalTile(l);
     }
 
-    int[] PickPattern(int inBar)
+    // ══════════════════════════════════════════════════════════════════
+    //  HELPERS
+    // ══════════════════════════════════════════════════════════════════
+
+    // Spawns a single tile halfway between beats, FORCED into a different lane
+    IEnumerator SpawnDelayedTile(float delaySec, int avoidLane)
     {
-        float multiChance = mode == GameMode.Easy ? 0.12f
-                          : mode == GameMode.Medium ? 0.28f
-                          : mode == GameMode.Hard ? 0.48f : 0.32f;
+        yield return new WaitForSeconds(delaySec);
 
-        if (inBar == 0 || inBar == 2) multiChance += 0.10f;
+        if (isSpawning && GameManager.Instance != null && GameManager.Instance.IsGameActive())
+        {
+            int nextLane;
+            do
+            {
+                nextLane = Random.Range(0, 4);
+            } while (nextLane == avoidLane);
 
-        if (spawnIntensity <= 0.6f) multiChance = 0f;
-
-        if (Random.value > multiChance)
-            return new[] { Random.Range(0, 4) };
-        else
-            return Patterns[Random.Range(4, Patterns.Length)];
+            SpawnNormalTile(nextLane);
+        }
     }
+
+    float CalcTravelTime()
+        => TrackController.Instance != null
+            ? Mathf.Abs(TrackController.Instance.spawnDist - TrackController.Instance.hitDist) / tileSpeed
+            : 15f / tileSpeed;
+
+    float DetectOffset(float songBPM) => Mathf.Max(0.05f, 60f / songBPM * 0.25f);
+
+    float DetectBPM(string name)
+    {
+        string n = name.ToLower();
+        if (n.Contains("runaway") || n.Contains("baby")) return 176f;
+        if (n.Contains("blueprint") || n.Contains("supreme")) return 140f;
+        if (n.Contains("uptown") || n.Contains("funk")) return 115f;
+        if (n.Contains("feeling") || n.Contains("timberlake")) return 113f;
+        if (n.Contains("blinding") || n.Contains("lights")) return 171f;
+        if (n.Contains("levitat")) return 103f;
+        if (n.Contains("titanium")) return 126f;
+        if (n.Contains("numb")) return 110f;
+        if (n.Contains("believer")) return 124f;
+        if (n.Contains("thunder")) return 168f;
+        if (n.Contains("enemy")) return 148f;
+        if (n.Contains("bad guy") || n.Contains("badguy")) return 135f;
+        if (n.Contains("stay")) return 170f;
+        if (n.Contains("heat wave")) return 81f;
+        if (n.Contains("shape") || n.Contains("of you")) return 96f;
+        if (n.Contains("perfect")) return 95f;
+        if (n.Contains("dance monkey")) return 98f;
+        if (n.Contains("watermelon")) return 95f;
+        if (n.Contains("industry")) return 103f;
+        return mode == GameMode.Hard ? 140f : mode == GameMode.Medium ? 115f : 90f;
+    }
+
+    AudioClip LoadClip(string clipName)
+    {
+        string modeName = mode.ToString();
+        var sub = Resources.LoadAll<AudioClip>("Music/" + modeName);
+        if (sub != null && sub.Length > 0)
+        {
+            string s = clipName.ToLower();
+            return sub.FirstOrDefault(c => c.name.ToLower().Contains(s))
+                ?? sub.FirstOrDefault(c => s.Contains(c.name.ToLower()))
+                ?? sub[0];
+        }
+        return Resources.Load<AudioClip>("Music/" + modeName);
+    }
+
+    int PickFreeLane(float[] next, float t)
+    {
+        var free = Enumerable.Range(0, 4).Where(i => t >= next[i]).ToList();
+        return free.Count > 0 ? free[Random.Range(0, free.Count)] : -1;
+    }
+
+    List<int> GetFreeLanes(float[] next, float t, int count)
+        => Enumerable.Range(0, 4).Where(i => t >= next[i])
+            .OrderBy(_ => Random.value).Take(count).ToList();
 
     void SpawnNormalTile(int lane)
     {
-        var go = new GameObject("Tile");
-        var tile = go.AddComponent<Tile>();
+        if (!TrackController.Instance) return;
+        var go = new GameObject("Tile"); var tile = go.AddComponent<Tile>();
         tile.Init(lane, tileSpeed, false, 0f);
         go.transform.position = TrackController.Instance.SpawnPos(lane);
-        activeTiles.Add(tile);
-        PlayerController.Instance?.RegisterTile(tile);
+        activeTiles.Add(tile); PlayerController.Instance?.RegisterTile(tile);
     }
 
-    void SpawnLongTile(int lane)
+    void SpawnLongTile(int lane, float holdLen)
     {
-        var go = new GameObject("LongTile");
-        var tile = go.AddComponent<Tile>();
-        float holdLen = Random.Range(2.5f, 5.0f);
+        if (!TrackController.Instance) return;
+        var go = new GameObject("LongTile"); var tile = go.AddComponent<Tile>();
         tile.Init(lane, tileSpeed, true, holdLen);
         go.transform.position = TrackController.Instance.SpawnPos(lane);
-        activeTiles.Add(tile);
-        PlayerController.Instance?.RegisterTile(tile);
+        activeTiles.Add(tile); PlayerController.Instance?.RegisterTile(tile);
     }
 
     public void RemoveTile(Tile t) => activeTiles.Remove(t);
