@@ -287,9 +287,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::TileSpawner
   spawnInterval: 1.2
   tileSpeed: 6
-  endlessMode: 0
   bpm: 80
-  useBeatSpawn: 1
+  endlessMode: 0
 --- !u!4 &135700435
 Transform:
   m_ObjectHideFlags: 0
@@ -810,7 +809,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   currentMode: 0
   glowIntensity: 2
-  sGameOver: {fileID: 8300000, guid: ba478f9be3fa1284e964c5b594217f51, type: 3}
 --- !u!4 &1629463987
 Transform:
   m_ObjectHideFlags: 0
@@ -976,6 +974,7 @@ GameObject:
   - component: {fileID: 1936110957}
   - component: {fileID: 1936110961}
   - component: {fileID: 1936110960}
+  - component: {fileID: 1936110962}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -1113,6 +1112,18 @@ MonoBehaviour:
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
   m_Version: 2
+--- !u!114 &1936110962
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1936110956}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 77375e25eca8dd144bf55f9ca53cddb4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AudioWaveform
 --- !u!1 &1942528391
 GameObject:
   m_ObjectHideFlags: 0

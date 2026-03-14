@@ -220,7 +220,16 @@ public class PlayerController : MonoBehaviour
             if (t == null || t.IsHit || t.IsMissed || t.lane != lane) continue;
             if (t.DistToHitLine < bestDist) { bestDist = t.DistToHitLine; best = t; }
         }
-        if (best == null || bestDist > hitZoneDistance * 1.9f) return;
+
+        // ── PENALTY LOGIC: If the player pressed a key but no valid tile was near ──
+        if (best == null || bestDist > hitZoneDistance * 1.9f)
+        {
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.ApplySpamPenalty();
+            }
+            return;
+        }
 
         if (best.isLong)
         {
