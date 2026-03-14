@@ -27,8 +27,8 @@ public class GameManager : MonoBehaviour
     // HUD
     TextMeshProUGUI scoreTxt, comboTxt, accTxt, hpTxt, resultTxt;
 
-    // Game Over
-    TextMeshProUGUI goScore, goAcc, goCombo;
+    // Game Over & Victory
+    TextMeshProUGUI goTitleTxt, goScore, goAcc, goCombo;
     GameObject goPanel, pausePanel, lbPanel;
     Coroutine resultCo;
 
@@ -62,12 +62,12 @@ public class GameManager : MonoBehaviour
             if (c.gameObject != gameObject) Destroy(c.gameObject);
 
         // ── SYNCED VOLUME SETTINGS ──
-        sfx = gameObject.AddComponent<AudioSource>(); 
-        sfx.volume = PlayerPrefs.GetFloat("SFXVolume", 0.8f); // Reads your saved SFX slider!
+        sfx = gameObject.AddComponent<AudioSource>();
+        sfx.volume = PlayerPrefs.GetFloat("SFXVolume", 0.8f);
 
         music = gameObject.AddComponent<AudioSource>();
-        music.loop = false; 
-        music.volume = PlayerPrefs.GetFloat("MusicVolume", 0.55f); // Reads your saved Music slider!
+        music.loop = false;
+        music.volume = PlayerPrefs.GetFloat("MusicVolume", 0.55f);
         // ────────────────────────────
 
         sPerfect = Beep(880f, .08f); sGood = Beep(660f, .06f); sMiss = Beep(110f, .13f, true);
@@ -122,6 +122,11 @@ public class GameManager : MonoBehaviour
         music.clip = playlist[index];
         music.Play();
         Debug.Log($"[Music] Playing track {index + 1}/{playlist.Length}: {playlist[index].name}");
+
+        if (TileSpawner.Instance != null)
+        {
+            TileSpawner.Instance.SetDynamicBPM(playlist[index].name);
+        }
     }
 
     void ShufflePlaylist()
@@ -141,16 +146,27 @@ public class GameManager : MonoBehaviour
         if (currentMode == GameMode.Endless)
         {
             UpdateEndless();
-        }
-        else
-        {
-            if (music.clip != null && !music.isPlaying && Time.timeSinceLevelLoad > 2f)
+
+            if (music.clip != null && !music.isPlaying && !paused && Time.timeSinceLevelLoad > 2f)
             {
                 playlistIndex++;
                 if (playlist != null && playlistIndex < playlist.Length)
+                {
                     PlayTrack(playlistIndex);
+                }
                 else
-                    GameOver();
+                {
+                    ShufflePlaylist();
+                    playlistIndex = 0;
+                    PlayTrack(playlistIndex);
+                }
+            }
+        }
+        else
+        {
+            if (music.clip != null && !music.isPlaying && !paused && Time.timeSinceLevelLoad > 2f)
+            {
+                GameOver();
             }
         }
 
@@ -160,17 +176,13 @@ public class GameManager : MonoBehaviour
     void UpdateEndless()
     {
         float t = Time.timeSinceLevelLoad;
-
         float cycleLen = 55f;
         float cyclePos = t % cycleLen;
         float intensity;
 
-        if (cyclePos < 30f)
-            intensity = cyclePos / 30f;
-        else if (cyclePos < 40f)
-            intensity = 1f;
-        else
-            intensity = 1f - (cyclePos - 40f) / 15f;
+        if (cyclePos < 30f) intensity = cyclePos / 30f;
+        else if (cyclePos < 40f) intensity = 1f;
+        else intensity = 1f - (cyclePos - 40f) / 15f;
 
         intensity = Mathf.Clamp01(intensity);
 
@@ -178,7 +190,6 @@ public class GameManager : MonoBehaviour
         TileSpawner.Instance.tileSpeed = 5f + intensity * 11f + longTermBoost;
         TileSpawner.Instance.spawnInterval = Mathf.Max(0.35f, 1.2f - intensity * 0.85f);
         TrackController.Instance.rotationInterval = Mathf.Max(2.5f, 9f - intensity * 6f);
-
         TileSpawner.Instance.bpm = 90f + intensity * 60f + longTermBoost * 5f;
     }
 
@@ -201,28 +212,14 @@ public class GameManager : MonoBehaviour
         switch (r)
         {
             case HitResult.Perfect:
-                hits++;
-                combo++;
-                score += 300 + combo * 12;
-                lbl = "PERFECT!";
-                col = CP;
-                sfx.PlayOneShot(sPerfect);
-                break;
+                hits++; combo++; score += 300 + combo * 12; lbl = "PERFECT!"; col = CP;
+                sfx.PlayOneShot(sPerfect); break;
             case HitResult.Good:
-                hits++;
-                combo = 0;
-                score += 100;
-                lbl = "GOOD";
-                col = CG;
-                sfx.PlayOneShot(sGood);
-                break;
+                hits++; combo = 0; score += 100; lbl = "GOOD"; col = CG;
+                sfx.PlayOneShot(sGood); break;
             default: // MISS
-                combo = 0;
-                hp = Mathf.Max(0f, hp - 10f);
-                lbl = "MISS";
-                col = CM;
-                sfx.PlayOneShot(sMiss);
-                CameraShake.Instance?.Shake(.2f, .1f);
+                combo = 0; hp = Mathf.Max(0f, hp - 10f); lbl = "MISS"; col = CM;
+                sfx.PlayOneShot(sMiss); CameraShake.Instance?.Shake(.2f, .1f);
                 if (hp <= 0f) { GameOver(); return; }
                 break;
         }
@@ -233,49 +230,70 @@ public class GameManager : MonoBehaviour
     public void ApplySpamPenalty()
     {
         if (!alive) return;
-
-        combo = 0;
-        hp = Mathf.Max(0f, hp - 5f);
-
+        combo = 0; hp = Mathf.Max(0f, hp - 5f);
         sfx.PlayOneShot(sMiss);
         CameraShake.Instance?.Shake(.1f, .05f);
         ShowResult("MISS", CM);
-
-        if (hp <= 0f)
-        {
-            GameOver();
-        }
+        if (hp <= 0f) GameOver();
     }
 
     void GameOver()
     {
+        if (!alive) return; // Prevent double calls
         alive = false;
-        music.Stop();
 
-        // ── Play Game Over sound ──
-        if (sGameOver != null)
-            sfx.PlayOneShot(sGameOver);
+        // ENABLE UI FIRST! Guarantees the panel shows up even if an external script throws an error below.
+        if (goPanel != null) goPanel.SetActive(true);
 
-        TileSpawner.Instance.StopSpawning();
-        TrackController.Instance.StopRotating();
+        // Update final text stats
         float acc = total > 0 ? (float)hits / total * 100f : 0f;
+        if (goScore != null) goScore.text = score.ToString("N0");
+        if (goAcc != null) goAcc.text = $"{acc:F1}%";
+        if (goCombo != null) goCombo.text = "x" + maxCombo;
 
-        goScore.text = score.ToString("N0");
-        goAcc.text = $"{acc:F1}%";
-        goCombo.text = "x" + maxCombo;
+        if (hp > 0f)
+        {
+            if (goTitleTxt != null) { goTitleTxt.text = "TRACK CLEARED!"; goTitleTxt.color = GetHDR(CG); }
+        }
+        else
+        {
+            if (goTitleTxt != null) { goTitleTxt.text = "GAME OVER"; goTitleTxt.color = GetHDR(new Color(1f, .15f, .25f)); }
+            if (sGameOver != null && sfx != null) sfx.PlayOneShot(sGameOver);
+        }
 
-        goPanel.SetActive(true);
-        HighScoreManager.Instance?.TrySubmitScore(currentMode, score);
-        float accVal = total > 0 ? (float)hits / total * 100f : 0f;
-        LeaderboardManager.Instance?.TrySubmit(currentMode.ToString(), score, maxCombo, accVal);
-        if (lbPanel != null) LeaderboardManager.Instance?.BuildLeaderboardUI(lbPanel, currentMode.ToString());
+        // Wrap risky actions in try-catch so one failing script doesn't freeze the screen
+        try { if (music != null) music.Stop(); } catch { }
+        try { TileSpawner.Instance?.StopSpawning(); } catch { }
+        try { TrackController.Instance?.StopRotating(); } catch { }
+        try { HighScoreManager.Instance?.TrySubmitScore(currentMode, score); } catch { }
+        try { LeaderboardManager.Instance?.TrySubmit(currentMode.ToString(), score, maxCombo, acc); } catch { }
+        try { if (lbPanel != null) LeaderboardManager.Instance?.BuildLeaderboardUI(lbPanel, currentMode.ToString()); } catch { }
     }
 
     void TogglePause()
     {
-        paused = !paused; Time.timeScale = paused ? 0f : 1f;
-        if (music.isPlaying && paused) music.Pause(); else if (!paused) music.UnPause();
-        pausePanel.SetActive(paused);
+        paused = !paused;
+        Time.timeScale = paused ? 0f : 1f;
+
+        // Turn ON pause UI immediately
+        if (pausePanel != null) pausePanel.SetActive(paused);
+
+        // Safe music toggle
+        try
+        {
+            if (music != null)
+            {
+                if (music.isPlaying && paused) music.Pause();
+                else if (!paused) music.UnPause();
+            }
+        }
+        catch { }
+    }
+
+    public float GetMusicTime()
+    {
+        if (music != null && music.clip != null) return music.time;
+        return 0f;
     }
 
     public void Restart() { Time.timeScale = 1f; SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex); }
@@ -284,18 +302,22 @@ public class GameManager : MonoBehaviour
 
     void RefreshHUD()
     {
-        scoreTxt.text = score.ToString("N0");
+        if (scoreTxt) scoreTxt.text = score.ToString("N0");
         float acc = total > 0 ? (float)hits / total * 100f : 100f;
-        accTxt.text = $"{acc:F1}%";
-        hpTxt.text = "\u2665 " + (int)hp;
-        comboTxt.text = combo > 1 ? "x" + combo : "";
-        if (combo > 1) comboTxt.color = Color.Lerp(CYAN, MAGENTA, Mathf.Sin(Time.time * 7f) * .5f + .5f);
+        if (accTxt) accTxt.text = $"{acc:F1}%";
+        if (hpTxt) hpTxt.text = "\u2665 " + (int)hp;
+        if (comboTxt)
+        {
+            comboTxt.text = combo > 1 ? "x" + combo : "";
+            if (combo > 1) comboTxt.color = Color.Lerp(CYAN, MAGENTA, Mathf.Sin(Time.time * 7f) * .5f + .5f);
+        }
     }
 
     void ShowResult(string lbl, Color col) { if (resultCo != null) StopCoroutine(resultCo); resultCo = StartCoroutine(ResultAnim(lbl, col)); }
 
     IEnumerator ResultAnim(string lbl, Color col)
     {
+        if (!resultTxt) yield break;
         resultTxt.text = lbl; resultTxt.transform.localScale = Vector3.one * 1.4f;
         float t = 0f;
         while (t < 0.55f)
@@ -310,7 +332,6 @@ public class GameManager : MonoBehaviour
     {
         var cgo = new GameObject("_Canvas");
         var cv = cgo.AddComponent<Canvas>();
-
         cv.renderMode = RenderMode.ScreenSpaceCamera;
         cv.worldCamera = Camera.main;
         cv.planeDistance = 5f;
@@ -345,17 +366,18 @@ public class GameManager : MonoBehaviour
 
         goPanel = Panel(cgo, new Color(.02f, .02f, .05f, .95f));
 
-        var goTitle = T(goPanel, "GAME OVER", 88, new Vector2(0, 200), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        goTitle.color = GetHDR(new Color(1f, .15f, .25f)); goTitle.fontStyle = FontStyles.Bold | FontStyles.Italic;
+        goTitleTxt = T(goPanel, "GAME OVER", 88, new Vector2(0, 200), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
+        goTitleTxt.fontStyle = FontStyles.Bold | FontStyles.Italic;
 
         var statsBox = new GameObject("StatsBox"); statsBox.transform.SetParent(goPanel.transform, false);
-        var sBoxRt = statsBox.AddComponent<RectTransform>(); sBoxRt.anchorMin = sBoxRt.anchorMax = A(0.5f, 0.5f);
+        var sBoxRt = statsBox.GetComponent<RectTransform>();
+        if (sBoxRt == null) sBoxRt = statsBox.AddComponent<RectTransform>();
+        sBoxRt.anchorMin = sBoxRt.anchorMax = A(0.5f, 0.5f);
         sBoxRt.anchoredPosition = new Vector2(0, 30); sBoxRt.sizeDelta = new Vector2(750, 140);
         statsBox.AddComponent<Image>().color = new Color(0.04f, 0.05f, 0.08f, 0.9f);
 
         NeonLine(statsBox, new Vector2(-375, 70), new Vector2(375, 70), GetHDR(CYAN), 1f);
         NeonLine(statsBox, new Vector2(-375, -70), new Vector2(375, -70), GetHDR(CYAN), 1f);
-
         NeonLine(statsBox, new Vector2(-125, 50), new Vector2(-125, -50), GetHDR(CYAN), 0.5f);
         NeonLine(statsBox, new Vector2(125, 50), new Vector2(125, -50), GetHDR(CYAN), 0.5f);
 
@@ -378,15 +400,15 @@ public class GameManager : MonoBehaviour
         NeonBtn(goPanel, "MENU", new Color(1f, 0.2f, 0.4f), new Vector2(160, -95), () => MainMenu());
 
         var lbDiv = new GameObject("LBDiv"); lbDiv.transform.SetParent(goPanel.transform, false);
-        var ldRT = lbDiv.AddComponent<RectTransform>(); ldRT.anchorMin = new Vector2(.5f, .5f); ldRT.anchorMax = new Vector2(.5f, .5f);
+        var ldRT = lbDiv.GetComponent<RectTransform>(); if (ldRT == null) ldRT = lbDiv.AddComponent<RectTransform>();
+        ldRT.anchorMin = new Vector2(.5f, .5f); ldRT.anchorMax = new Vector2(.5f, .5f);
         ldRT.anchoredPosition = new Vector2(0, -140); ldRT.sizeDelta = new Vector2(680, 1.5f);
         lbDiv.AddComponent<UnityEngine.UI.Image>().color = new Color(CYAN.r, CYAN.g, CYAN.b, .3f);
 
         lbPanel = new GameObject("LBPanel"); lbPanel.transform.SetParent(goPanel.transform, false);
-        var lbRT = lbPanel.AddComponent<RectTransform>();
+        var lbRT = lbPanel.GetComponent<RectTransform>(); if (lbRT == null) lbRT = lbPanel.AddComponent<RectTransform>();
         lbRT.anchorMin = new Vector2(.5f, .5f); lbRT.anchorMax = new Vector2(.5f, .5f);
-        lbRT.anchoredPosition = new Vector2(0, -255);
-        lbRT.sizeDelta = new Vector2(720, 220);
+        lbRT.anchoredPosition = new Vector2(0, -255); lbRT.sizeDelta = new Vector2(720, 220);
         var lbBG = lbPanel.AddComponent<UnityEngine.UI.Image>(); lbBG.color = new Color(.01f, .02f, .05f, .0f);
 
         goPanel.SetActive(false);
@@ -418,6 +440,14 @@ public class GameManager : MonoBehaviour
         StartCoroutine(KeepPauseCombo(pCombo));
 
         pausePanel.SetActive(false);
+
+        // --- CRITICAL FIX: Ensures the UI accepts mouse clicks even without a manual EventSystem ---
+        if (FindObjectOfType<UnityEngine.EventSystems.EventSystem>() == null)
+        {
+            var es = new GameObject("EventSystem");
+            es.AddComponent<UnityEngine.EventSystems.EventSystem>();
+            es.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
+        }
     }
 
     IEnumerator KeepPauseScore(TextMeshProUGUI t) { while (true) { if (t) t.text = score.ToString("N0"); yield return new WaitForSecondsRealtime(.1f); } }
@@ -428,7 +458,8 @@ public class GameManager : MonoBehaviour
     TextMeshProUGUI T(GameObject p, string txt, int sz, Vector2 pos, Vector2 aMin, Vector2 aMax, TextAlignmentOptions al)
     {
         var go = new GameObject("_T"); go.transform.SetParent(p.transform, false);
-        var rt = go.AddComponent<RectTransform>(); rt.anchorMin = aMin; rt.anchorMax = aMax;
+        var rt = go.GetComponent<RectTransform>(); if (rt == null) rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = aMin; rt.anchorMax = aMax;
         rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(800, 120);
         var t = go.AddComponent<TextMeshProUGUI>(); t.text = txt; t.fontSize = sz; t.alignment = al; t.color = Color.white;
         return t;
@@ -437,14 +468,16 @@ public class GameManager : MonoBehaviour
     GameObject Panel(GameObject p, Color bg)
     {
         var go = new GameObject("_P"); go.transform.SetParent(p.transform, false);
-        var rt = go.AddComponent<RectTransform>(); rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        var rt = go.GetComponent<RectTransform>(); if (rt == null) rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
         rt.offsetMin = rt.offsetMax = Vector2.zero; go.AddComponent<Image>().color = bg; return go;
     }
 
     void NeonLine(GameObject p, Vector2 from, Vector2 to, Color col, float alpha)
     {
         var go = new GameObject("_L"); go.transform.SetParent(p.transform, false);
-        var rt = go.AddComponent<RectTransform>(); rt.anchorMin = rt.anchorMax = A(.5f, .5f);
+        var rt = go.GetComponent<RectTransform>(); if (rt == null) rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = A(.5f, .5f);
         Vector2 mid = (from + to) / 2f; rt.anchoredPosition = mid;
         rt.sizeDelta = new Vector2(Vector2.Distance(from, to), 1.5f);
         float ang = Mathf.Atan2(to.y - from.y, to.x - from.x) * Mathf.Rad2Deg;
@@ -455,7 +488,8 @@ public class GameManager : MonoBehaviour
     void NeonBtn(GameObject p, string lbl, Color col, Vector2 pos, UnityEngine.Events.UnityAction cb)
     {
         var go = new GameObject("_B"); go.transform.SetParent(p.transform, false);
-        var rt = go.AddComponent<RectTransform>(); rt.anchorMin = rt.anchorMax = A(.5f, .5f);
+        var rt = go.GetComponent<RectTransform>(); if (rt == null) rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = A(.5f, .5f);
         rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(250, 54);
         var img = go.AddComponent<Image>(); img.color = new Color(col.r * .08f, col.g * .08f, col.b * .08f, .9f);
 
@@ -468,12 +502,14 @@ public class GameManager : MonoBehaviour
     void PauseBtn(GameObject p, string lbl, Color col, Vector2 pos, UnityEngine.Events.UnityAction cb)
     {
         var go = new GameObject("_PB"); go.transform.SetParent(p.transform, false);
-        var rt = go.AddComponent<RectTransform>(); rt.anchorMin = rt.anchorMax = A(.5f, .5f);
+        var rt = go.GetComponent<RectTransform>(); if (rt == null) rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = A(.5f, .5f);
         rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(440, 60);
         var img = go.AddComponent<Image>(); img.color = new Color(col.r * .06f, col.g * .06f, col.b * .06f, .9f);
         AddBorder(go, col, .5f);
         var bar = new GameObject("Bar"); bar.transform.SetParent(go.transform, false);
-        var brt = bar.AddComponent<RectTransform>(); brt.anchorMin = A(0, .1f); brt.anchorMax = A(0, .9f);
+        var brt = bar.GetComponent<RectTransform>(); if (brt == null) brt = bar.AddComponent<RectTransform>();
+        brt.anchorMin = A(0, .1f); brt.anchorMax = A(0, .9f);
         brt.offsetMin = new Vector2(0, -2); brt.offsetMax = new Vector2(4, 2);
         bar.AddComponent<Image>().color = GetHDR(col);
         var btn = go.AddComponent<Button>(); btn.targetGraphic = img; btn.onClick.AddListener(cb);
@@ -483,7 +519,8 @@ public class GameManager : MonoBehaviour
     void AddBorder(GameObject go, Color col, float alpha)
     {
         var ov = new GameObject("Border"); ov.transform.SetParent(go.transform, false);
-        var rt = ov.AddComponent<RectTransform>(); rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        var rt = ov.GetComponent<RectTransform>(); if (rt == null) rt = ov.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
         rt.offsetMin = new Vector2(-1, -1); rt.offsetMax = new Vector2(1, 1);
         var img = ov.AddComponent<Image>(); img.color = Color.clear;
         var O = go.AddComponent<Outline>(); O.effectColor = new Color(col.r, col.g, col.b, alpha); O.effectDistance = new Vector2(2, -2);
@@ -492,7 +529,8 @@ public class GameManager : MonoBehaviour
     GameObject Label(GameObject p, string txt, int sz, Color col)
     {
         var go = new GameObject("L"); go.transform.SetParent(p.transform, false);
-        var rt = go.AddComponent<RectTransform>(); rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        var rt = go.GetComponent<RectTransform>(); if (rt == null) rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
         rt.offsetMin = rt.offsetMax = Vector2.zero;
         var tmp = go.AddComponent<TextMeshProUGUI>(); tmp.text = txt; tmp.fontSize = sz;
         tmp.fontStyle = FontStyles.Bold; tmp.alignment = TextAlignmentOptions.Center; tmp.color = col;
