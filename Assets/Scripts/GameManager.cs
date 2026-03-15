@@ -16,20 +16,27 @@ public class GameManager : MonoBehaviour
     [Tooltip("Increase this to make the Game Over screen neon colors glow brighter!")]
     public float glowIntensity = 2.5f;
 
+    [Header("Custom Sound Effects")]
+    [Tooltip("Assign your own sound effects here. If left empty, the game will use default procedural beeps.")]
+    public AudioClip customPerfectSound;
+    public AudioClip customGoodSound;
+    public AudioClip customMissSound;
 
     int score, combo, maxCombo, total, hits, perfectHits;
     float hp = 100f;
     bool alive, paused;
+    bool musicStarted = false;
 
+    // --- DSP AUDIO SYNC VARIABLES ---
+    double dspStartTime;
 
     // HUD
     TextMeshProUGUI scoreTxt, comboTxt, accTxt, hpTxt, resultTxt;
 
-    // Game Over
-    TextMeshProUGUI goScore, goAcc, goCombo;
+    // Game Over / Level Clear
+    TextMeshProUGUI goScore, goAcc, goCombo, goTitle;
     GameObject goPanel, pausePanel, lbPanel;
     Coroutine resultCo;
-
 
     // Music
     AudioSource music;
@@ -42,12 +49,11 @@ public class GameManager : MonoBehaviour
     static readonly Color CYAN = new Color(0f, .9f, 1f);
     static readonly Color MAGENTA = new Color(1f, .15f, .75f);
 
-    // Mode colours for buttons
     static readonly Color[] ModeColors = {
-        new Color(.1f,1f,.4f),    // Easy - green
-        new Color(1f,.85f,.1f),   // Medium - yellow
-        new Color(1f,.35f,.1f),   // Hard - orange
-        new Color(.8f,.1f,1f),    // Endless - purple
+        new Color(.1f,1f,.4f),    // Easy
+        new Color(1f,.85f,.1f),   // Medium
+        new Color(1f,.35f,.1f),   // Hard
+        new Color(.8f,.1f,1f),    // Endless
     };
 
     void Awake()
@@ -56,7 +62,7 @@ public class GameManager : MonoBehaviour
         Instance = this;
         Camera.main.backgroundColor = new Color(.025f, .025f, .09f);
         Camera.main.clearFlags = CameraClearFlags.SolidColor;
-        Camera.main.allowHDR = true; // REQUIRED FOR GLOW
+        Camera.main.allowHDR = true;
 
         foreach (var c in FindObjectsByType<Canvas>(FindObjectsSortMode.None))
             if (c.gameObject != gameObject) Destroy(c.gameObject);
@@ -64,7 +70,11 @@ public class GameManager : MonoBehaviour
         sfx = gameObject.AddComponent<AudioSource>(); sfx.volume = .55f;
         music = gameObject.AddComponent<AudioSource>();
         music.loop = true; music.volume = .7f;
-        sPerfect = Beep(880f, .08f); sGood = Beep(660f, .06f); sMiss = Beep(110f, .13f, true);
+
+        sPerfect = customPerfectSound != null ? customPerfectSound : Beep(880f, .08f);
+        sGood = customGoodSound != null ? customGoodSound : Beep(660f, .06f);
+        sMiss = customMissSound != null ? customMissSound : Beep(110f, .13f, true);
+
         BuildUI();
     }
 
@@ -101,21 +111,11 @@ public class GameManager : MonoBehaviour
 
     AudioClip[] LoadPlaylist(string modeName)
     {
-        // 1. Try subfolder: Resources/Music/Hard/
         var clips = Resources.LoadAll<AudioClip>("Music/" + modeName);
-        if (clips != null && clips.Length > 0)
-        {
-            Debug.Log($"[Music] Found {clips.Length} clip(s) in Music/{modeName}/");
-            return clips;
-        }
+        if (clips != null && clips.Length > 0) return clips;
 
-        // 2. Fallback: single file Resources/Music/Hard
         var single = Resources.Load<AudioClip>("Music/" + modeName);
-        if (single != null)
-        {
-            Debug.Log($"[Music] Found single clip: Music/{modeName}");
-            return new[] { single };
-        }
+        if (single != null) return new[] { single };
 
         return null;
     }
@@ -125,11 +125,15 @@ public class GameManager : MonoBehaviour
         if (playlist == null || index >= playlist.Length) return;
         music.clip = playlist[index];
 
-        // Build beatmap BEFORE playing so queue is ready before music.time advances
         if (currentMode != GameMode.Endless && TileSpawner.Instance != null)
             TileSpawner.Instance.SetDynamicBPM(playlist[index].name);
 
         music.Play();
+
+        // --- RECORD EXACT AUDIO HARDWARE TIME ---
+        dspStartTime = AudioSettings.dspTime;
+
+        musicStarted = true;
         Debug.Log($"[Music] Playing {index + 1}/{playlist.Length}: {playlist[index].name}");
     }
 
@@ -146,6 +150,7 @@ public class GameManager : MonoBehaviour
     {
         if (!alive) return;
         if (Input.GetKeyDown(KeyCode.Escape)) TogglePause();
+
         if (currentMode == GameMode.Endless)
         {
             float t = Time.timeSinceLevelLoad;
@@ -153,7 +158,22 @@ public class GameManager : MonoBehaviour
             TileSpawner.Instance.tileSpeed = Mathf.Min(18f, 5f + t * .02f);
             TrackController.Instance.rotationInterval = Mathf.Max(3f, 8f - t * .012f);
         }
+        else if (musicStarted && !paused)
+        {
+            if (!music.isPlaying && TileSpawner.Instance.GetActiveTiles().Count == 0)
+            {
+                musicStarted = false;
+                StartCoroutine(TrackClearRoutine());
+            }
+        }
+
         RefreshHUD();
+    }
+
+    IEnumerator TrackClearRoutine()
+    {
+        yield return new WaitForSeconds(0.8f);
+        if (alive) EndLevel(true);
     }
 
     void ApplyMode()
@@ -181,53 +201,89 @@ public class GameManager : MonoBehaviour
             default:
                 combo = 0; hp = Mathf.Max(0f, hp - 10f); lbl = "MISS"; col = CM; sfx.PlayOneShot(sMiss);
                 CameraShake.Instance?.Shake(.2f, .1f);
-                if (hp <= 0f) { GameOver(); return; }
+                if (hp <= 0f) { EndLevel(false); return; }
                 break;
         }
         if (combo > maxCombo) maxCombo = combo;
         ShowResult(lbl, col);
     }
 
-    void GameOver()
+    public void EndLevel(bool cleared = false)
     {
-        alive = false; music.Stop();
+        alive = false;
+        if (music.isPlaying) music.Stop();
+
         TileSpawner.Instance.StopSpawning();
         TrackController.Instance.StopRotating();
+
         float acc = total > 0 ? (float)perfectHits / total * 100f : 0f;
 
-        // This is where the game grabs the exact player stats!
         goScore.text = score.ToString("N0");
         goAcc.text = $"{acc:F1}%";
         goCombo.text = "x" + maxCombo;
 
+        if (cleared)
+        {
+            goTitle.text = "TRACK CLEARED";
+            goTitle.color = GetHDR(CG);
+            sfx.PlayOneShot(sPerfect);
+        }
+        else
+        {
+            goTitle.text = "GAME OVER";
+            goTitle.color = GetHDR(new Color(1f, .15f, .25f));
+        }
+
         goPanel.SetActive(true);
         HighScoreManager.Instance?.TrySubmitScore(currentMode, score);
-        float accVal = total > 0 ? (float)perfectHits / total * 100f : 0f;
-        LeaderboardManager.Instance?.TrySubmit(currentMode.ToString(), score, accVal);
-        // Show leaderboard in the game over panel
+        LeaderboardManager.Instance?.TrySubmit(currentMode.ToString(), score, acc);
         if (lbPanel != null) LeaderboardManager.Instance?.BuildLeaderboardUI(lbPanel, currentMode.ToString());
     }
 
     void TogglePause()
     {
         paused = !paused; Time.timeScale = paused ? 0f : 1f;
-        if (music.isPlaying && paused) { music.Pause(); PlayerController.Instance?.ClearHeldTiles(); } else if (!paused) music.UnPause();
+        if (paused)
+        {
+            if (music.isPlaying) music.Pause();
+        }
+        else
+        {
+            music.UnPause();
+            // --- RESYNC DSP TIME ---
+            // If we don't do this, unpausing will cause the notes to violently teleport forward!
+            dspStartTime = AudioSettings.dspTime - music.time;
+        }
         pausePanel.SetActive(paused);
     }
 
     public void Restart() { Time.timeScale = 1f; SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex); }
     public void MainMenu() { Time.timeScale = 1f; SceneManager.LoadScene("MainMenu"); }
     public bool IsGameActive() => alive;
-    public float GetMusicTime() => music != null && music.clip != null ? music.time : 0f;
+
+    // --- THE MAGIC SYNC UPGRADE ---
+    public float GetMusicTime()
+    {
+        if (music != null && music.clip != null && music.isPlaying && !paused)
+        {
+            // Bypasses Unity's framerate entirely for silky smooth 100% precise syncing
+            return (float)(AudioSettings.dspTime - dspStartTime);
+        }
+        else if (music != null && paused)
+        {
+            return music.time;
+        }
+        return 0f;
+    }
+
     public void ApplySpamPenalty()
     {
         if (!alive) return;
-        // Spam does NOT count toward total notes — only HP penalty
         combo = 0; hp = Mathf.Max(0f, hp - 3f);
         sfx.PlayOneShot(sMiss);
         CameraShake.Instance?.Shake(.1f, .05f);
         ShowResult("SPAM!", CM);
-        if (hp <= 0f) GameOver();
+        if (hp <= 0f) EndLevel(false);
         RefreshHUD();
     }
 
@@ -261,7 +317,6 @@ public class GameManager : MonoBehaviour
         var cgo = new GameObject("_Canvas");
         var cv = cgo.AddComponent<Canvas>();
 
-        // Setup camera for Bloom Post Processing
         cv.renderMode = RenderMode.ScreenSpaceCamera;
         cv.worldCamera = Camera.main;
         cv.planeDistance = 5f;
@@ -271,7 +326,6 @@ public class GameManager : MonoBehaviour
         sc.referenceResolution = new Vector2(1280, 720); sc.matchWidthOrHeight = 0.5f;
         cgo.AddComponent<GraphicRaycaster>();
 
-        // ── TOP HUD BAR ────────────────────────────────────────────────
         scoreTxt = T(cgo, "0", 52, new Vector2(24, -20), A(0, 1), A(0, 1), TextAlignmentOptions.TopLeft);
         scoreTxt.color = Color.white; scoreTxt.fontStyle = FontStyles.Bold;
 
@@ -295,68 +349,54 @@ public class GameManager : MonoBehaviour
         T(cgo, "ESC = PAUSE", 18, new Vector2(-16, 16), A(1, 0), A(1, 0), TextAlignmentOptions.BottomRight)
             .color = new Color(.4f, .7f, 1f, .3f);
 
-        // ── GAME OVER PANEL (Matches the glowing Figma reference) ─────────────
-        goPanel = Panel(cgo, new Color(.02f, .02f, .05f, .95f)); // Dark background overlay
+        goPanel = Panel(cgo, new Color(.02f, .02f, .05f, .95f));
 
-        // "GAME OVER" Title - Red, Bold, Italic, Glowing
-        var goTitle = T(goPanel, "GAME OVER", 88, new Vector2(0, 200), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
+        goTitle = T(goPanel, "GAME OVER", 88, new Vector2(0, 200), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         goTitle.color = GetHDR(new Color(1f, .15f, .25f)); goTitle.fontStyle = FontStyles.Bold | FontStyles.Italic;
 
-        // Stats Box Background Container
         var statsBox = new GameObject("StatsBox"); statsBox.transform.SetParent(goPanel.transform, false);
         var sBoxRt = statsBox.AddComponent<RectTransform>(); sBoxRt.anchorMin = sBoxRt.anchorMax = A(0.5f, 0.5f);
         sBoxRt.anchoredPosition = new Vector2(0, 30); sBoxRt.sizeDelta = new Vector2(750, 140);
         statsBox.AddComponent<Image>().color = new Color(0.04f, 0.05f, 0.08f, 0.9f);
 
-        // Stats Box Glowing Borders
-        NeonLine(statsBox, new Vector2(-375, 70), new Vector2(375, 70), GetHDR(CYAN), 1f); // Top
-        NeonLine(statsBox, new Vector2(-375, -70), new Vector2(375, -70), GetHDR(CYAN), 1f); // Bottom
+        NeonLine(statsBox, new Vector2(-375, 70), new Vector2(375, 70), GetHDR(CYAN), 1f);
+        NeonLine(statsBox, new Vector2(-375, -70), new Vector2(375, -70), GetHDR(CYAN), 1f);
 
-        // Divider Lines Inside Box
         NeonLine(statsBox, new Vector2(-125, 50), new Vector2(-125, -50), GetHDR(CYAN), 0.5f);
         NeonLine(statsBox, new Vector2(125, 50), new Vector2(125, -50), GetHDR(CYAN), 0.5f);
 
-        // 1. SCORE
         var sLbl = T(statsBox, "SCORE", 18, new Vector2(-250, 25), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         sLbl.color = Color.white; sLbl.fontStyle = FontStyles.Bold;
         goScore = T(statsBox, "0", 56, new Vector2(-250, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        goScore.color = GetHDR(CP); goScore.fontStyle = FontStyles.Bold; // Glowing Yellow
+        goScore.color = GetHDR(CP); goScore.fontStyle = FontStyles.Bold;
 
-        // 2. ACCURACY
         var aLbl = T(statsBox, "ACCURACY", 18, new Vector2(0, 25), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         aLbl.color = Color.white; aLbl.fontStyle = FontStyles.Bold;
         goAcc = T(statsBox, "0.0%", 56, new Vector2(0, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        goAcc.color = GetHDR(CG); goAcc.fontStyle = FontStyles.Bold; // Glowing Green
+        goAcc.color = GetHDR(CG); goAcc.fontStyle = FontStyles.Bold;
 
-        // 3. MAX COMBO
         var cLbl = T(statsBox, "MAX COMBO", 18, new Vector2(250, 25), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         cLbl.color = Color.white; cLbl.fontStyle = FontStyles.Bold;
         goCombo = T(statsBox, "x0", 56, new Vector2(250, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        goCombo.color = GetHDR(CYAN); goCombo.fontStyle = FontStyles.Bold; // Glowing Cyan
+        goCombo.color = GetHDR(CYAN); goCombo.fontStyle = FontStyles.Bold;
 
-        // Buttons — PLAY AGAIN (cyan border) | MENU (magenta border)
-        // Buttons moved UP to make room for leaderboard below
         NeonBtn(goPanel, "PLAY AGAIN", CYAN, new Vector2(-160, -95), () => Restart());
         NeonBtn(goPanel, "MENU", new Color(1f, 0.2f, 0.4f), new Vector2(160, -95), () => MainMenu());
 
-        // Divider line between buttons and leaderboard
         var lbDiv = new GameObject("LBDiv"); lbDiv.transform.SetParent(goPanel.transform, false);
         var ldRT = lbDiv.AddComponent<RectTransform>(); ldRT.anchorMin = new Vector2(.5f, .5f); ldRT.anchorMax = new Vector2(.5f, .5f);
         ldRT.anchoredPosition = new Vector2(0, -140); ldRT.sizeDelta = new Vector2(680, 1.5f);
         lbDiv.AddComponent<UnityEngine.UI.Image>().color = new Color(CYAN.r, CYAN.g, CYAN.b, .3f);
 
-        // ── LEADERBOARD PANEL — positioned in lower half, BELOW buttons ──
         lbPanel = new GameObject("LBPanel"); lbPanel.transform.SetParent(goPanel.transform, false);
         var lbRT = lbPanel.AddComponent<RectTransform>();
-        // Anchored to lower half: Y from -155 to -360 in anchored coords
         lbRT.anchorMin = new Vector2(.5f, .5f); lbRT.anchorMax = new Vector2(.5f, .5f);
         lbRT.anchoredPosition = new Vector2(0, -255);
         lbRT.sizeDelta = new Vector2(720, 220);
-        var lbBG = lbPanel.AddComponent<UnityEngine.UI.Image>(); lbBG.color = new Color(.01f, .02f, .05f, .0f); // transparent bg
+        var lbBG = lbPanel.AddComponent<UnityEngine.UI.Image>(); lbBG.color = new Color(.01f, .02f, .05f, .0f);
 
         goPanel.SetActive(false);
 
-        // ── PAUSE PANEL ─────────────────────
         pausePanel = Panel(cgo, new Color(.01f, .02f, .08f, .93f));
         NeonLine(pausePanel, new Vector2(-640, 358), new Vector2(640, 358), GetHDR(CYAN), 1f);
         var pauseTitle = T(pausePanel, "PAUSED", 90, new Vector2(0, 210), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
@@ -389,7 +429,6 @@ public class GameManager : MonoBehaviour
     IEnumerator KeepPauseScore(TextMeshProUGUI t) { while (true) { if (t) t.text = score.ToString("N0"); yield return new WaitForSecondsRealtime(.1f); } }
     IEnumerator KeepPauseCombo(TextMeshProUGUI t) { while (true) { if (t) t.text = "x" + maxCombo; yield return new WaitForSecondsRealtime(.1f); } }
 
-    // ── HELPERS ───────────────────────────────────────────────────────────
     static Vector2 A(float x, float y) => new Vector2(x, y);
 
     TextMeshProUGUI T(GameObject p, string txt, int sz, Vector2 pos, Vector2 aMin, Vector2 aMax, TextAlignmentOptions al)
@@ -423,14 +462,12 @@ public class GameManager : MonoBehaviour
     {
         var go = new GameObject("_B"); go.transform.SetParent(p.transform, false);
         var rt = go.AddComponent<RectTransform>(); rt.anchorMin = rt.anchorMax = A(.5f, .5f);
-        rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(250, 54); // Made slightly wider
+        rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(250, 54);
         var img = go.AddComponent<Image>(); img.color = new Color(col.r * .08f, col.g * .08f, col.b * .08f, .9f);
 
-        // HDR Glowing outline
         AddBorder(go, GetHDR(col), 1f);
         var btn = go.AddComponent<Button>(); btn.targetGraphic = img; btn.onClick.AddListener(cb);
 
-        // HDR Glowing text
         var tgo = Label(go, lbl, 26, GetHDR(col));
     }
 
@@ -455,7 +492,7 @@ public class GameManager : MonoBehaviour
         var rt = ov.AddComponent<RectTransform>(); rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
         rt.offsetMin = new Vector2(-1, -1); rt.offsetMax = new Vector2(1, 1);
         var img = ov.AddComponent<Image>(); img.color = Color.clear;
-        var O = go.AddComponent<Outline>(); O.effectColor = new Color(col.r, col.g, col.b, alpha); O.effectDistance = new Vector2(2, -2); // Thicker outline
+        var O = go.AddComponent<Outline>(); O.effectColor = new Color(col.r, col.g, col.b, alpha); O.effectDistance = new Vector2(2, -2);
     }
 
     GameObject Label(GameObject p, string txt, int sz, Color col)

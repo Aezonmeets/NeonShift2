@@ -289,6 +289,7 @@ MonoBehaviour:
   tileSpeed: 6
   bpm: 80
   endlessMode: 0
+  trackOffset: 0
 --- !u!4 &135700435
 Transform:
   m_ObjectHideFlags: 0
@@ -809,6 +810,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   currentMode: 0
   glowIntensity: 2
+  customPerfectSound: {fileID: 8300000, guid: fbeb507444fa4ca409fb77ef1ea45b2d, type: 3}
+  customGoodSound: {fileID: 8300000, guid: fbeb507444fa4ca409fb77ef1ea45b2d, type: 3}
+  customMissSound: {fileID: 0}
 --- !u!4 &1629463987
 Transform:
   m_ObjectHideFlags: 0

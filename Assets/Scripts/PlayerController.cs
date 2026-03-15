@@ -7,8 +7,14 @@ public class PlayerController : MonoBehaviour
 {
     public static PlayerController Instance { get; private set; }
 
-    public float hitZoneDistance = 1.5f;  // slightly wider to accommodate beat-sync precision
-    public float perfectZone = 0.35f;  // tighter perfect window — beats are now accurate
+    [Header("Hit Tuning")]
+    [Tooltip("The absolute maximum distance to catch a Good hit. Higher = more forgiving.")]
+    public float hitZoneDistance = 2.2f;
+    public float perfectZone = 0.6f;
+
+    [Header("Instant Audio Feedback")]
+    public AudioClip hitSound;
+    private AudioSource fastAudioSource;
 
     public enum RotationState { Normal, Rotated90, Rotated180, Rotated270 }
 
@@ -37,18 +43,19 @@ public class PlayerController : MonoBehaviour
     SpriteRenderer[] zoneBGs;
     TextMeshPro[] zoneLabels;
 
-    float receptorY;
-
     void Awake()
     {
         if (Instance != null) { Destroy(gameObject); return; }
         Instance = this;
         if (keyProfiles == null || keyProfiles.Length != 4) SetupDefaultKeyProfiles();
+
+        fastAudioSource = gameObject.AddComponent<AudioSource>();
+        fastAudioSource.playOnAwake = false;
+        fastAudioSource.spatialBlend = 0f;
     }
 
     void Start()
     {
-        receptorY = -(Camera.main.orthographicSize - 1.5f);
         SetControlsForRotation(RotationState.Normal);
         BuildHitZones();
     }
@@ -87,34 +94,29 @@ public class PlayerController : MonoBehaviour
         zoneBGs = new SpriteRenderer[count];
         zoneLabels = new TextMeshPro[count];
 
-        // ── WIDTH FIX: 94% of spacing guarantees they fit cleanly inside the lane borders ──
         float boxW = spacing * 0.94f;
         float boxH = 0.85f;
 
-        // 1. Build the Global Backplate
         backplateRoot = new GameObject("HitZonesBackplate");
         backplateRoot.transform.SetParent(transform);
         var bpSR = backplateRoot.AddComponent<SpriteRenderer>();
         bpSR.sprite = MakeRoundedSolid();
-        bpSR.drawMode = SpriteDrawMode.Sliced; // Enables 9-slicing
+        bpSR.drawMode = SpriteDrawMode.Sliced;
         bpSR.color = new Color(0.08f, 0.12f, 0.16f, 0.85f);
         bpSR.sortingOrder = 18;
         bpSR.material = new Material(Shader.Find("Sprites/Default"));
         bpSR.size = new Vector2((count * spacing) + 0.2f, boxH * 1.3f);
 
-        // 2. Build Individual Keys
         Sprite roundedBorderSprite = MakeRoundedBorder();
         Sprite roundedSolidSprite = MakeRoundedSolid();
 
         for (int i = 0; i < count; i++)
         {
             Color col = TrackController.LaneColors[i];
-
             var root = new GameObject("Zone_" + i);
             root.transform.SetParent(transform);
             zoneRoots[i] = root;
 
-            // Key Tint Background
             var bgGO = new GameObject("BG"); bgGO.transform.SetParent(root.transform, false);
             var bgSR = bgGO.AddComponent<SpriteRenderer>();
             bgSR.sprite = roundedSolidSprite;
@@ -125,7 +127,6 @@ public class PlayerController : MonoBehaviour
             bgSR.color = new Color(col.r, col.g, col.b, 0.1f);
             zoneBGs[i] = bgSR;
 
-            // Colored Border Box
             var ringGO = new GameObject("Border"); ringGO.transform.SetParent(root.transform, false);
             var ringSR = ringGO.AddComponent<SpriteRenderer>();
             ringSR.sprite = roundedBorderSprite;
@@ -136,7 +137,6 @@ public class PlayerController : MonoBehaviour
             ringSR.color = new Color(col.r * 0.8f, col.g * 0.8f, col.b * 0.8f, 0.95f);
             zoneRings[i] = ringSR;
 
-            // Optional Under-Glow
             var glowGO = new GameObject("Glow"); glowGO.transform.SetParent(root.transform, false);
             glowGO.transform.localPosition = new Vector3(0f, -boxH * 0.4f, 0f);
             var glowSR = glowGO.AddComponent<SpriteRenderer>();
@@ -147,7 +147,6 @@ public class PlayerController : MonoBehaviour
             glowGO.transform.localScale = new Vector3(boxW * 0.8f, boxH * 0.6f, 1f);
             zoneGlows[i] = glowSR;
 
-            // Text Label
             var lblGO = new GameObject("Lbl"); lblGO.transform.SetParent(root.transform, false);
             lblGO.transform.localPosition = new Vector3(0f, 0f, -0.1f);
             var tmp = lblGO.AddComponent<TextMeshPro>();
@@ -166,28 +165,18 @@ public class PlayerController : MonoBehaviour
         if (!GameManager.Instance || !GameManager.Instance.IsGameActive()) return;
         var tc = TrackController.Instance;
 
-        // Position Global Backplate in the center
         Vector3 centerPos = Vector3.zero;
         for (int i = 0; i < zoneRoots.Length; i++) centerPos += tc.HitPos(i);
         centerPos /= zoneRoots.Length;
         backplateRoot.transform.position = centerPos;
         backplateRoot.transform.rotation = Quaternion.Euler(0f, 0f, tc.CurrentAngle);
 
-        // Update Keys
         for (int i = 0; i < zoneRoots.Length; i++)
         {
             zoneRoots[i].transform.position = tc.HitPos(i);
             zoneRoots[i].transform.rotation = Quaternion.Euler(0f, 0f, tc.CurrentAngle);
-
-            Color col = TrackController.LaneColors[i];
-            float t = Time.time * 2.5f + i * 1.57f;
-
-            if (zoneRings[i]) zoneRings[i].color = new Color(col.r * 0.8f, col.g * 0.8f, col.b * 0.8f, 0.85f + Mathf.Sin(t * 1.2f) * 0.1f);
-            if (zoneBGs[i]) zoneBGs[i].color = new Color(col.r, col.g, col.b, 0.1f + Mathf.Sin(t) * 0.02f);
-            if (zoneGlows[i]) zoneGlows[i].color = new Color(col.r, col.g, col.b, 0.05f + Mathf.Sin(t) * 0.02f);
         }
 
-        // Input
         for (int i = 0; i < activeKeys.Length; i++)
         {
             if (Input.GetKeyDown(activeKeys[i]))
@@ -199,52 +188,82 @@ public class PlayerController : MonoBehaviour
             {
                 if (heldTile[i] != null)
                 {
-                    // Only call ReleaseHold if tile is still alive
-                    if (!heldTile[i].IsHit && !heldTile[i].IsMissed)
-                        heldTile[i].ReleaseHold();
+                    heldTile[i].ReleaseHold();
                     heldTile[i] = null;
                 }
             }
-
-            // Auto-clear any held tile references that were destroyed externally
-            if (heldTile[i] != null && (heldTile[i].IsHit || heldTile[i].IsMissed))
-                heldTile[i] = null;
         }
     }
 
+    // --- THE COMPLETELY REBUILT HIT LOGIC ---
     void TryHit(int lane)
     {
-        Tile best = null; float bestDist = float.MaxValue;
-        foreach (var t in tiles)
+        Tile best = null;
+        float bestDist = float.MaxValue;
+
+        // Dynamic multiplier prevents Hard mode from having impossibly tight windows
+        float speedMultiplier = TrackController.Instance != null ? TileSpawner.Instance.tileSpeed / 7f : 1f;
+
+        // This is now the definitive, absolute catch area. No more traps.
+        float currentPerfectZone = perfectZone * speedMultiplier;
+        float currentGoodZone = hitZoneDistance * speedMultiplier;
+
+        bool areTilesInLane = false;
+
+        // 1. Find the absolutely closest tile in this lane
+        for (int i = 0; i < tiles.Count; i++)
         {
+            Tile t = tiles[i];
             if (t == null || t.IsHit || t.IsMissed || t.lane != lane) continue;
-            if (t.DistToHitLine < bestDist) { bestDist = t.DistToHitLine; best = t; }
-        }
 
-        // ── PENALTY LOGIC: If the player pressed a key but no valid tile was near ──
-        if (best == null || bestDist > hitZoneDistance * 1.9f)
-        {
-            if (GameManager.Instance != null)
+            areTilesInLane = true;
+            float d = t.DistToHitLine;
+
+            // Only grab it if it's the closest one
+            if (d < bestDist)
             {
-                GameManager.Instance.ApplySpamPenalty();
+                bestDist = d;
+                best = t;
             }
-            return;
         }
 
-        if (best.isLong)
+        // 2. Evaluate the hit fairly
+        if (best != null)
         {
-            // Guard: don't re-register if this tile is already being held
-            if (best.IsBeingHeld) return;
-            // Don't RegisterHit here — hold tiles score on COMPLETION in Tile.UpdateHold
-            // This prevents double-counting total and perfectHits
-            best.StartHold();
-            heldTile[lane] = best;
+            // If it is anywhere inside the massive Good zone, it is a guaranteed hit!
+            if (bestDist <= currentGoodZone)
+            {
+                HitResult result = (bestDist <= currentPerfectZone) ? HitResult.Perfect : HitResult.Good;
+
+                if (hitSound != null && fastAudioSource != null)
+                    fastAudioSource.PlayOneShot(hitSound, 0.8f);
+
+                if (best.isLong)
+                {
+                    GameManager.Instance?.RegisterHit(result, best.transform.position);
+                    best.StartHold();
+                    heldTile[lane] = best;
+                }
+                else
+                {
+                    GameManager.Instance?.RegisterHit(result, best.transform.position);
+                    best.Hit(result);
+                }
+            }
+            else
+            {
+                // The tile is too far away to hit, but they tried! 
+                // We do NOT drop their input into a penalty trap here. 
+                // We do nothing, allowing them to instantly press the key again when it gets closer.
+            }
         }
         else
         {
-            HitResult result = bestDist <= perfectZone ? HitResult.Perfect : HitResult.Good;
-            GameManager.Instance?.RegisterHit(result, best.transform.position);
-            best.Hit(result);
+            // ONLY punish if the lane is completely empty (true button mashing)
+            if (!areTilesInLane && GameManager.Instance != null)
+            {
+                GameManager.Instance.ApplySpamPenalty();
+            }
         }
     }
 
@@ -253,17 +272,15 @@ public class PlayerController : MonoBehaviour
         if (i >= zoneRoots.Length) yield break;
         Color col = TrackController.LaneColors[i];
         float t = 0f;
-        while (t < 0.15f)
+        while (t < 0.12f)
         {
-            t += Time.deltaTime; float p = t / 0.15f;
+            t += Time.deltaTime; float p = t / 0.12f;
             if (zoneRings[i]) zoneRings[i].color = new Color(col.r, col.g, col.b, Mathf.Lerp(1f, 0.85f, p));
-            if (zoneBGs[i]) zoneBGs[i].color = new Color(col.r, col.g, col.b, Mathf.Lerp(0.4f, 0.1f, p)); // Fills with bright color on hit
-            if (zoneGlows[i]) zoneGlows[i].color = new Color(col.r, col.g, col.b, Mathf.Lerp(0.6f, 0.05f, p));
+            if (zoneBGs[i]) zoneBGs[i].color = new Color(col.r, col.g, col.b, Mathf.Lerp(0.5f, 0.1f, p));
+            if (zoneGlows[i]) zoneGlows[i].color = new Color(col.r, col.g, col.b, Mathf.Lerp(0.8f, 0.05f, p));
             yield return null;
         }
     }
-
-    // ── PROCEDURAL 9-SLICED TEXTURES ──
 
     static Sprite MakeRoundedSolid()
     {
@@ -311,15 +328,4 @@ public class PlayerController : MonoBehaviour
 
     public void RegisterTile(Tile t) { if (!tiles.Contains(t)) tiles.Add(t); }
     public void UnregisterTile(Tile t) => tiles.Remove(t);
-
-    // Force-clear all held tile refs (called on pause/game over)
-    public void ClearHeldTiles()
-    {
-        for (int i = 0; i < heldTile.Length; i++)
-        {
-            if (heldTile[i] != null && !heldTile[i].IsHit && !heldTile[i].IsMissed)
-                heldTile[i].ReleaseHold();
-            heldTile[i] = null;
-        }
-    }
 }
