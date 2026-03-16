@@ -182,15 +182,14 @@ public class PlayerController : MonoBehaviour
         // --- NEW: THE GLOWING PERFECT HIT LINE (LASER) ---
         var laserGO = new GameObject("HitLine_Core");
         laserGO.transform.SetParent(backplateRoot.transform, false);
-        // Positioned exactly at mathematical 0 (the true center of the Perfect zone)
         laserGO.transform.localPosition = new Vector3(0f, 0f, -0.2f);
 
         var laserSR = laserGO.AddComponent<SpriteRenderer>();
         laserSR.sprite = MakeRoundedSolid();
         laserSR.drawMode = SpriteDrawMode.Sliced;
         laserSR.size = new Vector2((count * spacing) + 0.6f, 0.06f);
-        laserSR.color = new Color(1f, 1f, 1f, 0.9f); // Solid white core
-        laserSR.sortingOrder = 24; // Renders visually above the keys
+        laserSR.color = new Color(1f, 1f, 1f, 0.9f);
+        laserSR.sortingOrder = 24;
         laserSR.material = new Material(Shader.Find("Sprites/Default"));
 
         var laserGlowGO = new GameObject("HitLine_Glow");
@@ -200,7 +199,7 @@ public class PlayerController : MonoBehaviour
         laserGlowSR = laserGlowGO.AddComponent<SpriteRenderer>();
         laserGlowSR.sprite = MakeGlow();
         laserGlowSR.transform.localScale = new Vector3(((count * spacing) + 0.6f) * 0.8f, 0.5f, 1f);
-        laserGlowSR.color = new Color(0f, 0.9f, 1f, 0.5f); // Cyan neon glow
+        laserGlowSR.color = new Color(0f, 0.9f, 1f, 0.5f);
         laserGlowSR.sortingOrder = 23;
         laserGlowSR.material = new Material(Shader.Find("Sprites/Default"));
     }
@@ -210,7 +209,6 @@ public class PlayerController : MonoBehaviour
         if (!GameManager.Instance || !GameManager.Instance.IsGameActive()) return;
         var tc = TrackController.Instance;
 
-        // --- NEW: Pulsating animation for the laser line ---
         if (laserGlowSR != null)
         {
             float pulse = 0.4f + Mathf.Sin(Time.time * 8f) * 0.2f;
@@ -233,6 +231,12 @@ public class PlayerController : MonoBehaviour
         {
             if (Input.GetKeyDown(activeKeys[i]))
             {
+                // --- INSTANT VISUAL FEEDBACK ON THE TRACKS ---
+                if (tc != null)
+                {
+                    tc.PulseLane(i);
+                }
+
                 TryHit(i);
                 StartCoroutine(FlashZone(i));
             }

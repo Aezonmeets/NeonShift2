@@ -45,8 +45,23 @@ public class TileSpawner : MonoBehaviour
             case GameMode.Easy: tileSpeed = 7.0f; break;
             case GameMode.Medium: tileSpeed = 12.0f; break;
             case GameMode.Hard: tileSpeed = 14.5f; break;
-            // Slightly faster starting speed for Endless so it doesn't feel sluggish early on
             case GameMode.Endless: tileSpeed = 9.5f; endlessMode = true; break;
+        }
+    }
+
+    // --- NEW: Instantly update speed of all flying tiles ---
+    public void UpdateActiveTileSpeeds(float newSpeed)
+    {
+        tileSpeed = newSpeed;
+
+        // Clean up any destroyed tiles
+        activeTiles.RemoveAll(t => t == null);
+
+        // Force every tile currently on screen to adopt the new speed
+        foreach (Tile t in activeTiles)
+        {
+            // IMPORTANT: If your Tile.cs uses a different variable name (like moveSpeed), change 't.speed' below!
+            t.speed = newSpeed;
         }
     }
 
@@ -224,13 +239,10 @@ public class TileSpawner : MonoBehaviour
                 if (isQuarter && (bassProminence > 0.05f || trebleProminence > 0.05f || midProminence > 0.05f || midVolume > 0.1f)) spawnThis = true;
                 if (is8th && !isQuarter && (trebleProminence > 0.35f || midProminence > 0.4f)) spawnThis = true;
             }
-            else // --- THE NEW, RHYTHMIC EASY MODE ---
+            else
             {
-                // In 4/4 time, Beats 1 and 3 are the strongest physical pulses in a song.
-                // We lock them in so Easy mode never feels like it's drifting randomly.
                 bool isStrongDownbeat = (inBar16th == 0 || inBar16th == 8);
 
-                // Lowered the thresholds so it triggers consistently on the main rhythm
                 if (isQuarter && (isStrongDownbeat || bassProminence > 0.02f || trebleProminence > 0.03f || midVolume > 0.08f))
                 {
                     spawnThis = true;
@@ -257,8 +269,6 @@ public class TileSpawner : MonoBehaviour
 
     IEnumerator ProceduralSpawnLoop()
     {
-        float travelTime = CalcTravelTime();
-
         yield return new WaitUntil(() => GameManager.Instance != null && GameManager.Instance.GetMusicTime() > 0.01f);
 
         int beatIndex = 0;
@@ -271,6 +281,9 @@ public class TileSpawner : MonoBehaviour
         while (isSpawning && GameManager.Instance != null && GameManager.Instance.IsGameActive() && beatIndex < proceduralBeatmap.Count)
         {
             BeatData beat = proceduralBeatmap[beatIndex];
+
+            // --- NEW: Recalculates dynamically every frame to maintain sync when speed changes ---
+            float travelTime = CalcTravelTime();
             float spawnTime = beat.hitTime - travelTime;
 
             if (spawnTime < 0.05f) { beatIndex++; continue; }
@@ -385,12 +398,9 @@ public class TileSpawner : MonoBehaviour
 
         while (isSpawning)
         {
-            // --- FASTER ASCENSION PACING ---
-            // Doubled the growth rate. The speed and density will climb noticeably faster.
             if (tileSpeed < maxTileSpeed) tileSpeed += 0.05f;
             if (bpm < maxBPM) bpm += 1.0f;
 
-            // Tightened the density calculation so the chaotic patterns kick in much sooner
             float density = Mathf.Clamp01((tileSpeed - 5f) / 8f);
 
             int inBar = beat % 4;
@@ -418,6 +428,8 @@ public class TileSpawner : MonoBehaviour
                 }
             }
             beat++;
+
+            // Endless wait time gets faster naturally as BPM increases
             yield return new WaitForSeconds(60f / Mathf.Max(60f, bpm));
         }
     }

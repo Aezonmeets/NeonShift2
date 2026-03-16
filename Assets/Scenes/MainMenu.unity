@@ -726,15 +726,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 582a161d3275477428b863e85f9489cf, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MainMenuManager
+  glowIntensity: 2.5
   menuMusic: {fileID: 8300000, guid: bd594b55a2480f644ad3aa4fab6da670, type: 3}
   hoverSound: {fileID: 8300000, guid: 39b2e31162217aa4a9d683fbb75e55bd, type: 3}
   clickSound: {fileID: 8300000, guid: ab8e9ca2451c54d40bf0eb683e6b6d93, type: 3}
-  easyIcon: {fileID: 0}
-  mediumIcon: {fileID: 0}
-  hardIcon: {fileID: 0}
-  endlessIcon: {fileID: 0}
-  quitIcon: {fileID: -5522147866384714983, guid: e31daf537c85a834a9c0e7d7d5aa2f44, type: 3}
-  settingsIcon: {fileID: 0}
+  easyIcon: {fileID: -3893141973531030841, guid: 8817cee23cf64e34f961dbfb454d4a8c, type: 3}
+  mediumIcon: {fileID: 5834706552959489235, guid: 37377881fd30f24469c461bd4b43f380, type: 3}
+  hardIcon: {fileID: -7004678185350304794, guid: cc299e9f64a4e5e449e982957c26f60c, type: 3}
+  endlessIcon: {fileID: 733204183271624202, guid: 47fe2e4808ce07242bdb0f0a7271290d, type: 3}
+  quitIcon: {fileID: 8408196238160284942, guid: eac860b945d10bc419201a5b3e39b085, type: 3}
+  settingsIcon: {fileID: 6641874395876545730, guid: cec03edbd4c066140b02a8ec4dcae19f, type: 3}
 --- !u!4 &693022775
 Transform:
   m_ObjectHideFlags: 0

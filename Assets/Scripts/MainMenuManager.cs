@@ -18,15 +18,10 @@ public class MainMenuManager : MonoBehaviour
     };
 
     static readonly string[] ModeLabels = { "EASY", "MEDIUM", "HARD", "ENDLESS" };
+    static readonly string[] ModeFolders = { "Easy", "Medium", "Hard", "Endless" };
 
-    // --- NEW: The exact song lists you provided! ---
-    static readonly string[][] ModeSongs = new string[][] {
-        new string[] { "From the start - Laufey", "See you again - Tyler the Creator", "Cant stop the feeling - Justin Timberlake", "Bloody Mary - Lady Gaga", "Believer - Imagine Dragons", "Don't Start Now - Dua Lipa" }, // Easy
-        new string[] { "Twilight Zone - Ariana Grande", "Pyramid - Charice", "Uptown Funk - Mark Ronson ft. Bruno Mars", "Shake It Off - Taylor Swift" }, // Medium
-        new string[] { "Bad Guy - Billie Eilish", "Overpass Graffiti - Ed Sheeran", "Beggin' - Maneskin", "Love is embarrassing - Olivia Rodrigo", "Runaway Baby - Bruno Mars", "Blueprint Supreme - 攬佬SKAI ISYOURGOD", "Mr. Simple - Super Junior" }, // Hard
-        new string[] { "Blinding Lights - The Weeknd", "NO BATIDÃO -  ZXKAI and slxughter", "Crazy Frog - Axel F" } // Endless
-    };
-    // -----------------------------------------------
+    [Header("Neon Settings")]
+    public float glowIntensity = 2.5f;
 
     [Header("Audio Settings")]
     public AudioClip menuMusic;
@@ -48,14 +43,19 @@ public class MainMenuManager : MonoBehaviour
     GameObject settingsPanel;
     GameObject nameEntryPanel;
     GameObject songSelectionPanel;
-    GameObject songListContainer; // Holds the dynamic song buttons
+    GameObject songListContainer;
     TMP_InputField nameInput;
     int pendingModeIndex = 0;
 
     void Start()
     {
-        Camera.main.backgroundColor = DARK_BG;
-        Camera.main.clearFlags = CameraClearFlags.SolidColor;
+        // Wrapped in a null check just in case the camera is missing on scene reload
+        if (Camera.main != null)
+        {
+            Camera.main.backgroundColor = DARK_BG;
+            Camera.main.clearFlags = CameraClearFlags.SolidColor;
+            Camera.main.allowHDR = true; // Added this to ensure the camera allows high-intensity colors
+        }
 
         music = gameObject.AddComponent<AudioSource>();
         music.loop = true;
@@ -77,8 +77,18 @@ public class MainMenuManager : MonoBehaviour
         Build();
     }
 
+    // Helper method to push colors into HDR range for Bloom
+    Color GetHDR(Color c) => new Color(c.r * glowIntensity, c.g * glowIntensity, c.b * glowIntensity, 1f);
+
     void Build()
     {
+        // --- FIX: Cleanup old UI on scene load to prevent invisible conflicts ---
+        if (Application.isPlaying)
+        {
+            GameObject oldCanvas = GameObject.Find("Canvas");
+            if (oldCanvas != null) Destroy(oldCanvas);
+        }
+
         if (FindObjectOfType<EventSystem>() == null)
         {
             var eventSystem = new GameObject("EventSystem");
@@ -88,9 +98,13 @@ public class MainMenuManager : MonoBehaviour
 
         var cgo = new GameObject("Canvas");
         var cv = cgo.AddComponent<Canvas>();
+
+        // --- THE NEON GLOW FIX: Render through the Camera to catch Post-Processing! ---
         cv.renderMode = RenderMode.ScreenSpaceCamera;
         cv.worldCamera = Camera.main;
-        cv.planeDistance = 5f;
+        cv.planeDistance = 10f;
+        cv.sortingOrder = 10;
+        // -----------------------------------------------------------------------------
 
         var sc = cgo.AddComponent<CanvasScaler>();
         sc.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -137,8 +151,8 @@ public class MainMenuManager : MonoBehaviour
 
         topBtn.onClick.AddListener(() => {
             if (settingsPanel != null) settingsPanel.GetComponent<NeonPanelAnim>().Toggle();
-            if (nameEntryPanel != null) nameEntryPanel.GetComponent<NeonPanelAnim>().Hide(); 
-            if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Hide(); 
+            if (nameEntryPanel != null) nameEntryPanel.GetComponent<NeonPanelAnim>().Hide();
+            if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Hide();
         });
 
         // ── TITLE ──
@@ -151,11 +165,12 @@ public class MainMenuManager : MonoBehaviour
         tpRt.anchoredPosition = new Vector2(0, titleY);
         titleParent.AddComponent<NeonBreathingAnim>();
 
+        // Applying GetHDR here to make the title pop!
         var t1 = T(titleParent, "SHIFT", 95, new Vector2(-160, 0), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Right);
-        t1.color = CYAN; t1.fontStyle = FontStyles.Bold;
+        t1.color = GetHDR(CYAN); t1.fontStyle = FontStyles.Bold;
 
         var t2 = T(titleParent, "NEON", 95, new Vector2(150, 0), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Left);
-        t2.color = MAGENTA; t2.fontStyle = FontStyles.Bold;
+        t2.color = GetHDR(MAGENTA); t2.fontStyle = FontStyles.Bold;
 
         var sub = T(titleParent, "4-LANE RHYTHM GAME", 18, new Vector2(0, -70), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         sub.color = CYAN; sub.fontStyle = FontStyles.Bold;
@@ -169,10 +184,9 @@ public class MainMenuManager : MonoBehaviour
         {
             int mi = i;
             ModeButton(cgo, ModeLabels[i], modeSprites[i], ModeBorderColors[i],
-                new Vector2(0, startY + gap * i), () => { 
-                    pendingModeIndex = mi; 
-                    
-                    // --- CHANGED: Open Song Selection instead of Name Entry directly ---
+                new Vector2(0, startY + gap * i), () => {
+                    pendingModeIndex = mi;
+
                     PopulateSongList(mi);
                     if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Show();
                     if (settingsPanel != null) settingsPanel.GetComponent<NeonPanelAnim>().Hide();
@@ -193,7 +207,7 @@ public class MainMenuManager : MonoBehaviour
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // ── NEW: SONG SELECTION PANEL
+    // ── SONG SELECTION PANEL
     // ──────────────────────────────────────────────────────────────────────────
     GameObject CreateSongSelectionPanel(GameObject canvasGo)
     {
@@ -202,7 +216,7 @@ public class MainMenuManager : MonoBehaviour
         var prt = panel.AddComponent<RectTransform>();
         prt.anchorMin = prt.anchorMax = A(0.5f, 0.5f);
         prt.anchoredPosition = Vector2.zero;
-        prt.sizeDelta = new Vector2(550, 600); // Made it taller and wider for long song titles!
+        prt.sizeDelta = new Vector2(550, 600);
 
         var img = panel.AddComponent<Image>();
         img.color = new Color(0.05f, 0.07f, 0.11f, 0.98f);
@@ -212,7 +226,6 @@ public class MainMenuManager : MonoBehaviour
 
         T(panel, "SELECT TRACK", 35, new Vector2(0, 240), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center).color = MAGENTA;
 
-        // Container that will hold the dynamically generated song buttons
         songListContainer = new GameObject("Container");
         songListContainer.transform.SetParent(panel.transform, false);
         var crt = songListContainer.AddComponent<RectTransform>();
@@ -229,37 +242,40 @@ public class MainMenuManager : MonoBehaviour
 
     void PopulateSongList(int modeIndex)
     {
-        // 1. Destroy any old song buttons from the previous mode selected
-        foreach (Transform child in songListContainer.transform) {
+        foreach (Transform child in songListContainer.transform)
+        {
             Destroy(child.gameObject);
         }
 
-        // 2. Get the correct list of songs for this specific mode
-        string[] songs = ModeSongs[modeIndex];
-        
-        // Mathematically center the buttons vertically based on how many there are
-        float startY = (songs.Length - 1) * 55f / 2f; 
+        string targetFolder = ModeFolders[modeIndex];
+        AudioClip[] loadedTracks = Resources.LoadAll<AudioClip>("Music/" + targetFolder);
 
-        // 3. Generate a button for every song in the list
-        for (int i = 0; i < songs.Length; i++)
+        if (loadedTracks.Length == 0)
         {
-            string songName = songs[i];
+            SongButton(songListContainer, "No Tracks Found!", ModeBorderColors[modeIndex], Vector2.zero, () => { });
+            return;
+        }
+
+        float startY = (loadedTracks.Length - 1) * 55f / 2f;
+
+        for (int i = 0; i < loadedTracks.Length; i++)
+        {
+            string songName = loadedTracks[i].name;
             float yPos = startY - (i * 55f);
-            
+
             SongButton(songListContainer, songName, ModeBorderColors[modeIndex], new Vector2(0, yPos), () => {
-                
-                // --- SAVE THE CHOSEN SONG ---
+
                 PlayerPrefs.SetString("SelectedSong", songName);
+                PlayerPrefs.SetString("SelectedDifficulty", targetFolder);
+
                 if (sfx != null && clickSound != null) sfx.PlayOneShot(clickSound);
-                
-                // Hide song selection, show Name Entry
+
                 songSelectionPanel.GetComponent<NeonPanelAnim>().Hide();
                 if (nameEntryPanel != null) nameEntryPanel.GetComponent<NeonPanelAnim>().Show();
             });
         }
     }
 
-    // A slightly modified ModeButton specifically designed to fit long song titles nicely
     void SongButton(GameObject p, string lbl, Color col, Vector2 pos, UnityEngine.Events.UnityAction cb)
     {
         var go = new GameObject("SongBtn_" + lbl);
@@ -267,7 +283,7 @@ public class MainMenuManager : MonoBehaviour
         var rt = go.AddComponent<RectTransform>();
         rt.anchorMin = rt.anchorMax = A(.5f, .5f);
         rt.anchoredPosition = pos;
-        rt.sizeDelta = new Vector2(480, 45); // Made wider
+        rt.sizeDelta = new Vector2(480, 45);
 
         var img = go.AddComponent<Image>();
         img.color = new Color(0.08f, 0.10f, 0.13f, 0.95f);
@@ -284,13 +300,13 @@ public class MainMenuManager : MonoBehaviour
         var tgo = new GameObject("Label"); tgo.transform.SetParent(go.transform, false);
         var trt = tgo.AddComponent<RectTransform>();
         trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
-        trt.offsetMin = new Vector2(20, 0); trt.offsetMax = new Vector2(-10, 0); // extra padding
+        trt.offsetMin = new Vector2(20, 0); trt.offsetMax = new Vector2(-10, 0);
         var tmp = tgo.AddComponent<TextMeshProUGUI>();
-        tmp.text = lbl; tmp.fontSize = 16; tmp.fontStyle = FontStyles.Bold; // slightly smaller font to fit long titles
+        tmp.text = lbl; tmp.fontSize = 16; tmp.fontStyle = FontStyles.Bold;
         tmp.alignment = TextAlignmentOptions.Left;
         tmp.color = Color.white;
-        tmp.overflowMode = TextOverflowModes.Ellipsis; // if title is still too long, adds "..."
-        tmp.raycastTarget = false; 
+        tmp.overflowMode = TextOverflowModes.Ellipsis;
+        tmp.raycastTarget = false;
 
         var btn = go.AddComponent<Button>(); btn.targetGraphic = img;
         btn.onClick.AddListener(cb);
@@ -315,12 +331,12 @@ public class MainMenuManager : MonoBehaviour
         var prt = panel.AddComponent<RectTransform>();
         prt.anchorMin = prt.anchorMax = A(0.5f, 0.5f);
         prt.anchoredPosition = Vector2.zero;
-        prt.sizeDelta = new Vector2(450, 300); 
+        prt.sizeDelta = new Vector2(450, 300);
 
         var img = panel.AddComponent<Image>();
         img.color = new Color(0.05f, 0.07f, 0.11f, 0.98f);
         var outline = panel.AddComponent<Outline>();
-        outline.effectColor = MAGENTA; 
+        outline.effectColor = MAGENTA;
         outline.effectDistance = new Vector2(2, -2);
 
         T(panel, "ENTER CALLSIGN", 35, new Vector2(0, 90), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center).color = CYAN;
@@ -342,7 +358,7 @@ public class MainMenuManager : MonoBehaviour
         var trt = textGo.AddComponent<RectTransform>();
         trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
         trt.offsetMin = new Vector2(15, 0); trt.offsetMax = new Vector2(-15, 0);
-        
+
         var tmp = textGo.AddComponent<TextMeshProUGUI>();
         tmp.fontSize = 24;
         tmp.alignment = TextAlignmentOptions.Center;
@@ -351,8 +367,8 @@ public class MainMenuManager : MonoBehaviour
         nameInput = inputGo.AddComponent<TMP_InputField>();
         nameInput.targetGraphic = inputImg;
         nameInput.textComponent = tmp;
-        nameInput.characterLimit = 12; 
-        
+        nameInput.characterLimit = 12;
+
         nameInput.customCaretColor = true;
         nameInput.caretColor = CYAN;
         nameInput.selectionColor = new Color(CYAN.r, CYAN.g, CYAN.b, 0.4f);
@@ -360,20 +376,20 @@ public class MainMenuManager : MonoBehaviour
         string[] prefixes = { "Neon", "Cyber", "Synth", "Byte", "Pixel", "Zero" };
         string[] suffixes = { "Rider", "Ninja", "Runner", "Ghost", "Punk", "Shift" };
         string generatedName = prefixes[Random.Range(0, prefixes.Length)] + suffixes[Random.Range(0, suffixes.Length)] + Random.Range(10, 99);
-        
+
         nameInput.text = PlayerPrefs.GetString("PlayerName", generatedName);
 
         ModeButton(panel, "INITIALIZE", null, new Color(0.1f, 1f, 0.4f), new Vector2(0, -65), () => {
             string finalName = string.IsNullOrEmpty(nameInput.text) ? "UnknownPlayer" : nameInput.text;
             PlayerPrefs.SetString("PlayerName", finalName);
             PlayerPrefs.SetInt("SelectedMode", pendingModeIndex);
-            
+
             if (sfx != null && clickSound != null) sfx.PlayOneShot(clickSound);
+
             SceneManager.LoadScene("GameScene");
         });
 
         ModeButton(panel, "BACK", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -120), () => {
-            // Go back to the song selection panel instead of closing entirely!
             panel.GetComponent<NeonPanelAnim>().Hide();
             if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Show();
         });
@@ -489,7 +505,7 @@ public class MainMenuManager : MonoBehaviour
         tmp.alignment = TextAlignmentOptions.Left;
         tmp.characterSpacing = 3f;
         tmp.color = Color.white;
-        tmp.raycastTarget = false; 
+        tmp.raycastTarget = false;
 
         if (iconSprite != null)
         {
@@ -501,7 +517,7 @@ public class MainMenuManager : MonoBehaviour
             var actualImage = igo.AddComponent<Image>();
             actualImage.sprite = iconSprite;
             actualImage.color = col; actualImage.preserveAspect = true;
-            actualImage.raycastTarget = false; 
+            actualImage.raycastTarget = false;
         }
 
         var btn = go.AddComponent<Button>(); btn.targetGraphic = img;
@@ -540,7 +556,7 @@ public class MainMenuManager : MonoBehaviour
         rt.offsetMin = new Vector2(0, offY); rt.offsetMax = new Vector2(0, offY + height);
         var img = go.AddComponent<Image>();
         img.color = new Color(col.r, col.g, col.b, alpha);
-        img.raycastTarget = false; 
+        img.raycastTarget = false;
     }
 
     TextMeshProUGUI T(GameObject p, string txt, int sz, Vector2 pos, Vector2 aMin, Vector2 aMax, TextAlignmentOptions al)
@@ -551,7 +567,7 @@ public class MainMenuManager : MonoBehaviour
         rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(900, 130);
         var t = go.AddComponent<TextMeshProUGUI>();
         t.text = txt; t.fontSize = sz; t.alignment = al; t.color = Color.white;
-        t.raycastTarget = false; 
+        t.raycastTarget = false;
         return t;
     }
 
@@ -612,7 +628,7 @@ public class NeonPanelAnim : MonoBehaviour
     }
 
     public void Toggle() => isShowing = !isShowing;
-    public void Show() => isShowing = true; 
+    public void Show() => isShowing = true;
     public void Hide() => isShowing = false;
 }
 

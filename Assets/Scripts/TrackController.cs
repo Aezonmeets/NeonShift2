@@ -6,14 +6,10 @@ public class TrackController : MonoBehaviour
     public static TrackController Instance { get; private set; }
 
     public int laneCount = 4;
-
-    // Adjusted to 2.5f so the lines aren't too tight!
     public float laneSpacing = 2.5f;
-
     public float rotationInterval = 8f;
     public float transitionDuration = 0.55f;
 
-    // TARGET NEON COLORS
     public static readonly Color[] LaneColors = {
         new Color(1.0f, 0.05f, 0.6f, 1.0f), // Pink
         new Color(1.0f, 0.95f, 0.0f, 1.0f), // Yellow
@@ -27,10 +23,12 @@ public class TrackController : MonoBehaviour
     Coroutine rotateCo;
     LineRenderer[] laneLines;
 
-    // ── ONLY ALLOW MIDDLE, LEFT, AND RIGHT ROTATIONS ──
+    // --- NEW VARIABLES FOR GLOW ---
+    float[] lineGlow;
+    float warningPulse = 0f;
+
     static readonly float[] Angles = { 0f, 30f, -30f };
 
-    // ── ONLY CHANGE HERE: Made these public so Tiles can use them ──
     public float spawnDist;
     public float hitDist;
 
@@ -56,6 +54,8 @@ public class TrackController : MonoBehaviour
     void BuildLaneLines()
     {
         laneLines = new LineRenderer[laneCount + 1];
+        lineGlow = new float[laneCount + 1]; // Initialize the glow array
+
         for (int i = 0; i <= laneCount; i++)
         {
             var go = new GameObject("BorderLine_" + i);
@@ -63,29 +63,44 @@ public class TrackController : MonoBehaviour
             var lr = go.AddComponent<LineRenderer>();
 
             lr.material = new Material(Shader.Find("Sprites/Default"));
-
-            // THICKER LINES: Increased width to make the neon visible
             lr.startWidth = 0.06f;
             lr.endWidth = 0.06f;
             lr.positionCount = 2;
             lr.sortingOrder = -1;
             lr.useWorldSpace = true;
 
-            Color c = (i < laneCount) ? LaneColors[i] : LaneColors[laneCount - 1];
-
-            // GRADIENT FADE: Makes the top transparent and the bottom solid
-            Gradient grad = new Gradient();
-            grad.SetKeys(
-                new GradientColorKey[] { new GradientColorKey(c, 0.0f), new GradientColorKey(c, 1.0f) },
-                new GradientAlphaKey[] { new GradientAlphaKey(0.0f, 0.0f), new GradientAlphaKey(0.7f, 1.0f) }
-            );
-            lr.colorGradient = grad;
-
             laneLines[i] = lr;
         }
     }
 
-    void Update() => RefreshLines();
+    void Update()
+    {
+        // Smoothly fade out the keystroke glow over time
+        if (lineGlow != null)
+        {
+            for (int i = 0; i <= laneCount; i++)
+            {
+                if (lineGlow[i] > 0)
+                {
+                    lineGlow[i] -= Time.deltaTime * 6f; // Adjust this number to make the fade faster/slower
+                    if (lineGlow[i] < 0) lineGlow[i] = 0;
+                }
+            }
+        }
+
+        RefreshLines();
+    }
+
+    // --- NEW: CALL THIS FROM PLAYERCONTROLLER WHEN A KEY IS PRESSED ---
+    public void PulseLane(int lane)
+    {
+        if (lane >= 0 && lane < laneCount && lineGlow != null)
+        {
+            // Light up the left and right border of the target lane
+            lineGlow[lane] = 1f;
+            lineGlow[lane + 1] = 1f;
+        }
+    }
 
     void RefreshLines()
     {
@@ -101,13 +116,55 @@ public class TrackController : MonoBehaviour
             float offset = startBorderOffset - i * laneSpacing;
             Vector2 c = perp * offset;
 
-            // SetPosition(0) is the Top end of the line, SetPosition(1) is the Bottom end
             laneLines[i].SetPosition(0, (Vector3)(c - move * 30f));
             laneLines[i].SetPosition(1, (Vector3)(c + move * 20f));
+
+            // --- UNIFIED COLOR RENDERING ---
+            Color baseColor = (i < laneCount) ? LaneColors[i] : LaneColors[laneCount - 1];
+
+            // 1. Apply Overdrive Warning Flash
+            Color currentCol = Color.Lerp(baseColor, Color.white, warningPulse);
+            float targetAlpha = Mathf.Lerp(0.7f, 1.0f, warningPulse);
+
+            // 2. Apply Keystroke Glow
+            if (lineGlow[i] > 0)
+            {
+                currentCol = Color.Lerp(currentCol, Color.white, lineGlow[i] * 0.7f); // Shift toward white
+                targetAlpha = Mathf.Lerp(targetAlpha, 1.0f, lineGlow[i]); // Maximize alpha
+
+                // Thicken the line when hit for a punchy feel
+                laneLines[i].startWidth = 0.06f + (lineGlow[i] * 0.06f);
+                laneLines[i].endWidth = 0.06f + (lineGlow[i] * 0.06f);
+            }
+            else
+            {
+                laneLines[i].startWidth = 0.06f;
+                laneLines[i].endWidth = 0.06f;
+            }
+
+            Gradient grad = new Gradient();
+            grad.SetKeys(
+                new GradientColorKey[] { new GradientColorKey(currentCol, 0.0f), new GradientColorKey(currentCol, 1.0f) },
+                new GradientAlphaKey[] { new GradientAlphaKey(0.0f, 0.0f), new GradientAlphaKey(targetAlpha, 1.0f) }
+            );
+            laneLines[i].colorGradient = grad;
         }
     }
 
-    // --- HELPER METHODS FOR PLAYERCONTROLLER / TILE ---
+    public IEnumerator FlashWarningRoutine(float duration)
+    {
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            // Drives the global warning pulse value instead of directly overwriting colors
+            warningPulse = (Mathf.Sin(elapsed * 15f) + 1f) / 2f;
+            yield return null;
+        }
+        warningPulse = 0f; // Reset perfectly
+    }
+
+    // --- HELPER METHODS ---
     public int GetLaneCount() => laneCount;
     public float GetLaneSpacing() => laneSpacing;
     public bool IsTransitioning() => transitioning;
@@ -152,30 +209,18 @@ public class TrackController : MonoBehaviour
         transitioning = true;
         float from = CurrentAngle;
 
-        // ── BULLETPROOF RANDOM PICKER ──
-        // 1. Find which of the 3 array positions we are currently closest to
         int currentIndex = 0;
         float minDiff = float.MaxValue;
         for (int i = 0; i < Angles.Length; i++)
         {
             float diff = Mathf.Abs(Mathf.DeltaAngle(from, Angles[i]));
-            if (diff < minDiff)
-            {
-                minDiff = diff;
-                currentIndex = i;
-            }
+            if (diff < minDiff) { minDiff = diff; currentIndex = i; }
         }
 
-        // 2. Pick a random position, and keep picking if it lands on the current one
         int nextIndex = currentIndex;
-        while (nextIndex == currentIndex)
-        {
-            nextIndex = Random.Range(0, Angles.Length);
-        }
-
+        while (nextIndex == currentIndex) { nextIndex = Random.Range(0, Angles.Length); }
         float next = Angles[nextIndex];
 
-        // ── EXECUTE ROTATION ──
         float t = 0f;
         while (t < transitionDuration)
         {
@@ -185,12 +230,7 @@ public class TrackController : MonoBehaviour
         }
         CurrentAngle = next;
 
-        // Trigger the Player Controller update
-        if (PlayerController.Instance != null)
-        {
-            UpdatePlayerControls(CurrentAngle);
-        }
-
+        if (PlayerController.Instance != null) UpdatePlayerControls(CurrentAngle);
         transitioning = false;
     }
 

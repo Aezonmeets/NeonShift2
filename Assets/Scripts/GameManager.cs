@@ -21,9 +21,7 @@ public class GameManager : MonoBehaviour
 
     [Header("Visuals & Background")]
     public float glowIntensity = 2.5f;
-    [Tooltip("Drag your Hexagon background sprite here!")]
     public Sprite backgroundImage;
-    [Tooltip("How bright should the background be? (0 = black, 1 = full brightness)")]
     [Range(0f, 1f)] public float backgroundBrightness = 0.3f;
 
     [Header("Level Songs")]
@@ -34,6 +32,34 @@ public class GameManager : MonoBehaviour
     public AudioClip customGoodSound;
     public AudioClip customMissSound;
 
+    [Header("Audio Analysis (Auto-Beat)")]
+    [Tooltip("How loud the mid/high frequencies need to be to trigger 4x speed (rap/fast beats).")]
+    public float activityThreshold = 0.02f;
+    private float[] spectrumData = new float[256];
+    private float currentDynamicSubdivision = 2f;
+
+    // --- OVERDRIVE MULTIPLIERS ---
+    [Header("Overdrive Difficulty")]
+    [Tooltip("How much faster the tiles move during Overdrive.")]
+    public float overdriveSpeedMultiplier = 1.6f;
+    [Tooltip("How much faster the track rotates during Overdrive (lower is faster).")]
+    public float overdriveRotationMultiplier = 0.65f;
+
+    // --- FEVER ENERGY SYSTEM ---
+    [Header("Fever Settings")]
+    public int feverEnergyThreshold = 50; // BUMPED TO 50
+    public float feverDuration = 10f;     // How long the chaos lasts
+    int currentFeverEnergy = 0;
+
+    public bool IsFeverActive { get; private set; }
+    public bool isFeverStarting { get; private set; } // Prevents multiple warnings
+
+    // Original state variables to revert back to after Fever
+    float baseSpawnInterval;
+    float baseTileSpeed;
+    float baseTrackRot;
+    float origOrthoSize;
+
     int score, combo, maxCombo, total, hits, perfectHits;
     float hp = 100f;
     bool alive, paused;
@@ -41,21 +67,24 @@ public class GameManager : MonoBehaviour
 
     double dspStartTime;
 
-    TextMeshProUGUI scoreTxt, comboTxt, accTxt, hpTxt, resultTxt;
+    TextMeshProUGUI scoreTxt, comboTxt, accTxt, hpTxt, resultTxt, feverTxt, feverEnergyTxt;
+    RectTransform feverFillRT;
+    Image feverFillImg;
     TextMeshProUGUI goScore, goAcc, goCombo, goTitle;
     GameObject goPanel, pausePanel, lbPanel;
+    GameObject feverUIContainer;
     Coroutine resultCo;
 
     AudioSource music;
     AudioSource sfx;
     AudioClip sPerfect, sGood, sMiss;
 
-    static readonly Color CP = new Color(1f, .95f, .15f);
-    static readonly Color CG = new Color(.1f, 1f, .6f);
-    static readonly Color CO = new Color(1f, .6f, .1f);
-    static readonly Color CM = new Color(1f, .2f, .35f);
-    static readonly Color CYAN = new Color(0f, .9f, 1f);
-    static readonly Color MAGENTA = new Color(1f, .15f, .75f);
+    static readonly Color CP = new Color(1f, .95f, .15f); // Yellow
+    static readonly Color CG = new Color(.1f, 1f, .6f);   // Green
+    static readonly Color CO = new Color(1f, .6f, .1f);   // Orange
+    static readonly Color CM = new Color(1f, .2f, .35f);  // Red
+    static readonly Color CYAN = new Color(0f, .9f, 1f);  // Cyan
+    static readonly Color MAGENTA = new Color(1f, .15f, .75f); // Magenta
 
     void Awake()
     {
@@ -69,11 +98,11 @@ public class GameManager : MonoBehaviour
             if (c.gameObject != gameObject) Destroy(c.gameObject);
 
         sfx = gameObject.AddComponent<AudioSource>();
-        sfx.volume = 1.0f; // Max volume so hit sounds pop!
+        sfx.volume = PlayerPrefs.GetFloat("SFXVolume", 1.0f);
 
         music = gameObject.AddComponent<AudioSource>();
         music.loop = true;
-        music.volume = 0.45f; // Lowered to let the osu! hits cut through
+        music.volume = PlayerPrefs.GetFloat("MusicVolume", 0.45f);
 
         sPerfect = customPerfectSound != null ? customPerfectSound : Beep(880f, .08f);
         sGood = customGoodSound != null ? customGoodSound : Beep(660f, .06f);
@@ -88,6 +117,9 @@ public class GameManager : MonoBehaviour
         TileSpawner.Instance.Init(currentMode);
         ApplyMode();
         alive = true;
+
+        origOrthoSize = Camera.main.orthographicSize;
+
         TileSpawner.Instance.BeginSpawning();
         TrackController.Instance.BeginRotating();
         TryPlayMusic();
@@ -96,45 +128,37 @@ public class GameManager : MonoBehaviour
     void SetupBackground()
     {
         if (backgroundImage == null) return;
-
         GameObject bgObj = new GameObject("DynamicBackground");
-
         bgObj.transform.SetParent(Camera.main.transform);
         bgObj.transform.localPosition = new Vector3(0f, 0f, 10f);
-
         SpriteRenderer bgSR = bgObj.AddComponent<SpriteRenderer>();
         bgSR.sprite = backgroundImage;
         bgSR.sortingOrder = -100;
         bgSR.color = new Color(backgroundBrightness, backgroundBrightness, backgroundBrightness, 1f);
-
         float camHeight = Camera.main.orthographicSize * 2f;
         float camWidth = camHeight * Camera.main.aspect;
-
-        float spriteHeight = bgSR.sprite.bounds.size.y;
-        float spriteWidth = bgSR.sprite.bounds.size.x;
-
-        float scaleX = camWidth / spriteWidth;
-        float scaleY = camHeight / spriteHeight;
-        float finalScale = Mathf.Max(scaleX, scaleY);
-
+        float finalScale = Mathf.Max(camWidth / bgSR.sprite.bounds.size.x, camHeight / bgSR.sprite.bounds.size.y);
         bgObj.transform.localScale = new Vector3(finalScale, finalScale, 1f);
     }
 
     Color GetHDR(Color c) => new Color(c.r * glowIntensity, c.g * glowIntensity, c.b * glowIntensity, 1f);
 
+    public Color GetFeverRGB()
+    {
+        return Color.HSVToRGB((Time.time * 2f) % 1f, 1f, 1f);
+    }
+
     void TryPlayMusic()
     {
         string pickedSong = PlayerPrefs.GetString("SelectedSong", "");
-        AudioClip clipToPlay = null;
+        string difficulty = PlayerPrefs.GetString("SelectedDifficulty", "Easy");
 
-        foreach (var song in allSongs)
+        if (System.Enum.TryParse(difficulty, out GameMode parsedMode))
         {
-            if (song.songName == pickedSong)
-            {
-                clipToPlay = song.audioClip;
-                break;
-            }
+            currentMode = parsedMode;
         }
+
+        AudioClip clipToPlay = Resources.Load<AudioClip>($"Music/{difficulty}/{pickedSong}");
 
         if (clipToPlay != null)
         {
@@ -154,15 +178,55 @@ public class GameManager : MonoBehaviour
         if (!alive) return;
         if (Input.GetKeyDown(KeyCode.Escape)) TogglePause();
 
+        // --- DYNAMIC AUDIO ANALYSIS FOR OVERDRIVE ---
+        if (IsFeverActive && !paused && music.isPlaying)
+        {
+            music.GetSpectrumData(spectrumData, 0, FFTWindow.BlackmanHarris);
+
+            float midHighEnergy = 0f;
+            for (int i = 10; i < 60; i++)
+            {
+                midHighEnergy += spectrumData[i];
+            }
+            midHighEnergy /= 50f;
+
+            // Rap/Fast section detection: kicks it into 4x spawn mode
+            float targetSubdivision = (midHighEnergy > activityThreshold) ? 4f : 2f;
+            currentDynamicSubdivision = Mathf.Lerp(currentDynamicSubdivision, targetSubdivision, Time.deltaTime * 12f);
+        }
+
+        if (!paused && Camera.main != null)
+        {
+            if (IsFeverActive)
+            {
+                Camera.main.orthographicSize = Mathf.Lerp(Camera.main.orthographicSize, origOrthoSize * 1.25f, Time.deltaTime * 5f);
+            }
+            else
+            {
+                Camera.main.orthographicSize = Mathf.Lerp(Camera.main.orthographicSize, origOrthoSize, Time.deltaTime * 5f);
+            }
+            Camera.main.transform.localRotation = Quaternion.identity;
+        }
+
         if (currentMode == GameMode.Endless)
         {
             float t = Time.timeSinceLevelLoad;
-            TileSpawner.Instance.spawnInterval = Mathf.Max(.38f, 1.1f - t * .005f);
-            TileSpawner.Instance.tileSpeed = Mathf.Min(18f, 5f + t * .02f);
-            TrackController.Instance.rotationInterval = Mathf.Max(3f, 8f - t * .012f);
+            float targetInterval = Mathf.Max(.2f, 0.7f - t * .005f);
+
+            TileSpawner.Instance.spawnInterval = IsFeverActive ? targetInterval / currentDynamicSubdivision : targetInterval;
+
+            // Harder speed scaling in endless Overdrive
+            float currentEndlessSpeed = Mathf.Min(20f, 6f + t * .02f);
+            TileSpawner.Instance.tileSpeed = IsFeverActive ? currentEndlessSpeed * overdriveSpeedMultiplier : currentEndlessSpeed;
         }
         else if (musicStarted && !paused)
         {
+            if (IsFeverActive)
+            {
+                // Dynamic fast spawns + static fast tile speed
+                TileSpawner.Instance.spawnInterval = baseSpawnInterval / currentDynamicSubdivision;
+            }
+
             if (!music.isPlaying && TileSpawner.Instance.GetActiveTiles().Count == 0)
             {
                 musicStarted = false;
@@ -172,11 +236,7 @@ public class GameManager : MonoBehaviour
         RefreshHUD();
     }
 
-    IEnumerator TrackClearRoutine()
-    {
-        yield return new WaitForSeconds(0.8f);
-        if (alive) EndLevel(true);
-    }
+    IEnumerator TrackClearRoutine() { yield return new WaitForSeconds(0.8f); if (alive) EndLevel(true); }
 
     void ApplyMode()
     {
@@ -187,67 +247,100 @@ public class GameManager : MonoBehaviour
         switch (currentMode)
         {
             case GameMode.Easy:
-                ts.spawnInterval = 1.3f; ts.tileSpeed = 5f; tc.rotationInterval = 9f;
+                ts.spawnInterval = 0.75f; ts.tileSpeed = 6f; tc.rotationInterval = 9f;
                 pc.earlyDistance = 3.0f; pc.earlyGoodDistance = 1.5f; pc.earlyPerfectDistance = 0.6f;
                 pc.latePerfectDistance = -0.4f; pc.lateGoodDistance = -1.2f; pc.lateDistance = -1.8f;
                 break;
             case GameMode.Medium:
-                ts.spawnInterval = 0.95f; ts.tileSpeed = 7f; tc.rotationInterval = 6f;
+                ts.spawnInterval = 0.45f; ts.tileSpeed = 9f; tc.rotationInterval = 6f;
                 pc.earlyDistance = 2.8f; pc.earlyGoodDistance = 1.2f; pc.earlyPerfectDistance = 0.4f;
                 pc.latePerfectDistance = -0.2f; pc.lateGoodDistance = -0.8f; pc.lateDistance = -1.4f;
                 break;
             case GameMode.Hard:
-                ts.spawnInterval = 0.6f; ts.tileSpeed = 10f; tc.rotationInterval = 4f;
-                pc.earlyDistance = 2.4f; pc.earlyGoodDistance = 0.8f; pc.earlyPerfectDistance = 0.2f;
-                pc.latePerfectDistance = -0.1f; pc.lateGoodDistance = -0.5f; pc.lateDistance = -1.0f;
+                ts.spawnInterval = 0.22f; ts.tileSpeed = 14f; tc.rotationInterval = 3.5f;
+                pc.earlyDistance = 2.4f; pc.earlyGoodDistance = 0.8f; pc.earlyPerfectDistance = 0.25f;
+                pc.latePerfectDistance = -0.15f; pc.lateGoodDistance = -0.5f; pc.lateDistance = -1.0f;
                 break;
             case GameMode.Endless:
-                ts.spawnInterval = 1.3f; ts.tileSpeed = 5f; tc.rotationInterval = 9f;
+                ts.spawnInterval = 0.7f; ts.tileSpeed = 6f; tc.rotationInterval = 8f;
                 pc.earlyDistance = 2.8f; pc.earlyGoodDistance = 1.2f; pc.earlyPerfectDistance = 0.4f;
                 pc.latePerfectDistance = -0.2f; pc.lateGoodDistance = -0.8f; pc.lateDistance = -1.4f;
                 ts.endlessMode = true;
                 break;
         }
+
+        if (feverUIContainer != null)
+        {
+            feverUIContainer.SetActive(currentMode == GameMode.Endless);
+        }
+
+        baseSpawnInterval = ts.spawnInterval;
+        baseTileSpeed = ts.tileSpeed;
+        baseTrackRot = tc.rotationInterval;
     }
 
-    // --- HARDCORE SCORING: Only Perfect builds combo! ---
     public void RegisterHit(HitResult r, Vector3 pos)
     {
-        total++;
-        string lbl; Color col;
+        total++; string lbl; Color col;
+
+        // "GOD MODE" CHAOS FORGIVENESS
+        if (IsFeverActive && r != HitResult.Perfect && r != HitResult.Good)
+        {
+            combo++;
+            score += 50;
+            if (combo > maxCombo) maxCombo = combo;
+
+            lbl = "CHAOS!"; col = GetHDR(MAGENTA);
+            sfx.PlayOneShot(sGood, 0.8f);
+            ShowResult(lbl, col);
+            return;
+        }
+
         switch (r)
         {
             case HitResult.Perfect:
                 perfectHits++;
-                combo++; // Builds combo
-                score += 100 + combo * 5;
+                combo++;
+                if (currentMode == GameMode.Endless && !IsFeverActive && !isFeverStarting)
+                {
+                    currentFeverEnergy++;
+                    if (currentFeverEnergy >= feverEnergyThreshold) StartFeverSequence();
+                }
+
+                int pointsEarned = 100 + combo * 5;
+                if (IsFeverActive) pointsEarned *= 2;
+                score += pointsEarned;
+
                 lbl = "PERFECT!"; col = CP;
-                sfx.PlayOneShot(sPerfect, 1.2f);
+                sfx.PlayOneShot(sPerfect, IsFeverActive ? 1.4f : 1.2f);
                 break;
+
             case HitResult.Good:
-                combo = 0; // Breaks combo!
-                score += 50;
+                combo = 0;
+                if (currentMode == GameMode.Endless && !IsFeverActive && !isFeverStarting)
+                {
+                    currentFeverEnergy++;
+                    if (currentFeverEnergy >= feverEnergyThreshold) StartFeverSequence();
+                }
+
+                int goodPoints = 50;
+                if (IsFeverActive) goodPoints *= 2;
+                score += goodPoints;
+
                 lbl = "GOOD"; col = CG;
                 sfx.PlayOneShot(sGood);
                 break;
+
             case HitResult.Early:
-                combo = 0; // Breaks combo!
-                score += 20;
-                lbl = "EARLY"; col = CO;
-                sfx.PlayOneShot(sGood, 0.8f);
-                break;
             case HitResult.Late:
-                combo = 0; // Breaks combo!
-                score += 20;
-                lbl = "LATE"; col = CO;
-                sfx.PlayOneShot(sGood, 0.8f);
+                combo = 0; currentFeverEnergy = 0;
+                score += 20; lbl = r == HitResult.Early ? "EARLY" : "LATE"; col = CO; sfx.PlayOneShot(sGood, 0.8f);
                 break;
+
             default:
-                combo = 0; // Breaks combo!
-                hp = Mathf.Max(0f, hp - 10f);
+                combo = 0; currentFeverEnergy = 0; hp = Mathf.Max(0f, hp - 10f);
                 lbl = "MISS"; col = CM;
-                sfx.PlayOneShot(sMiss);
-                CameraShake.Instance?.Shake(.2f, .1f);
+                sfx.PlayOneShot(sMiss); CameraShake.Instance?.Shake(.2f, .1f);
                 if (hp <= 0f) { EndLevel(false); return; }
                 break;
         }
@@ -255,50 +348,100 @@ public class GameManager : MonoBehaviour
         ShowResult(lbl, col);
     }
 
+    void StartFeverSequence()
+    {
+        if (isFeverStarting || IsFeverActive) return;
+        isFeverStarting = true;
+        StartCoroutine(FeverWarningRoutine());
+    }
+
+    IEnumerator FeverWarningRoutine()
+    {
+        float prepTime = 1.5f;
+        CameraShake.Instance?.Shake(0.15f, prepTime);
+        yield return StartCoroutine(TrackController.Instance.FlashWarningRoutine(prepTime));
+        isFeverStarting = false;
+        ActivateFever();
+    }
+
+    void ActivateFever()
+    {
+        IsFeverActive = true;
+        currentFeverEnergy = feverEnergyThreshold;
+
+        currentDynamicSubdivision = 2f;
+
+        TileSpawner.Instance.spawnInterval = baseSpawnInterval / currentDynamicSubdivision;
+
+        float newSpeed = baseTileSpeed * overdriveSpeedMultiplier;
+        TileSpawner.Instance.tileSpeed = newSpeed;
+        TileSpawner.Instance.UpdateActiveTileSpeeds(newSpeed);
+
+        TrackController.Instance.rotationInterval = baseTrackRot * overdriveRotationMultiplier;
+
+        feverTxt.text = "OVERDRIVE";
+        feverTxt.color = GetHDR(Color.white);
+        feverFillImg.color = GetHDR(MAGENTA);
+        comboTxt.fontSize = 85;
+
+        CameraShake.Instance?.Shake(0.3f, 0.15f);
+
+        StartCoroutine(FeverDurationRoutine());
+    }
+
+    // Coroutine to automatically end fever with a flashing warning
+    IEnumerator FeverDurationRoutine()
+    {
+        float warningDuration = 2f; // Flash for 2 seconds before ending
+        float initialDuration = Mathf.Max(0f, feverDuration - warningDuration);
+
+        yield return new WaitForSeconds(initialDuration);
+
+        // Warn the player that the chaos is about to stop
+        if (IsFeverActive && TrackController.Instance != null)
+        {
+            yield return StartCoroutine(TrackController.Instance.FlashWarningRoutine(warningDuration));
+        }
+
+        if (IsFeverActive) DeactivateFever();
+    }
+
+    void DeactivateFever()
+    {
+        IsFeverActive = false;
+        currentFeverEnergy = 0;
+
+        TileSpawner.Instance.spawnInterval = baseSpawnInterval;
+
+        TileSpawner.Instance.tileSpeed = baseTileSpeed;
+        TileSpawner.Instance.UpdateActiveTileSpeeds(baseTileSpeed);
+
+        TrackController.Instance.rotationInterval = baseTrackRot;
+
+        feverTxt.text = "FEVER";
+        feverTxt.color = new Color(1f, 1f, 1f, 0.7f);
+        feverFillImg.color = GetHDR(CYAN);
+        comboTxt.fontSize = 72;
+
+        CameraShake.Instance?.Shake(0.2f, 0.1f);
+    }
+
     public void EndLevel(bool cleared = false)
     {
-        alive = false;
-        if (music.isPlaying) music.Stop();
-
-        TileSpawner.Instance.StopSpawning();
-        TrackController.Instance.StopRotating();
-
+        alive = false; if (music.isPlaying) music.Stop();
+        TileSpawner.Instance.StopSpawning(); TrackController.Instance.StopRotating();
         float acc = total > 0 ? (float)perfectHits / total * 100f : 0f;
-
-        goScore.text = score.ToString("N0");
-        goAcc.text = $"{acc:F1}%";
-        goCombo.text = "x" + maxCombo;
-
-        if (cleared)
-        {
-            goTitle.text = "TRACK CLEARED";
-            goTitle.color = GetHDR(CG);
-            sfx.PlayOneShot(sPerfect);
-        }
-        else
-        {
-            goTitle.text = "GAME OVER";
-            goTitle.color = GetHDR(new Color(1f, .15f, .25f));
-        }
-
+        goScore.text = score.ToString("N0"); goAcc.text = $"{acc:F1}%"; goCombo.text = "x" + maxCombo;
+        if (cleared) { goTitle.text = "TRACK CLEARED"; goTitle.color = GetHDR(CG); sfx.PlayOneShot(sPerfect); }
+        else { goTitle.text = "GAME OVER"; goTitle.color = GetHDR(new Color(1f, .15f, .25f)); }
         goPanel.SetActive(true);
-        HighScoreManager.Instance?.TrySubmitScore(currentMode, score);
-        LeaderboardManager.Instance?.TrySubmit(currentMode.ToString(), score, acc);
-        if (lbPanel != null) LeaderboardManager.Instance?.BuildLeaderboardUI(lbPanel, currentMode.ToString());
     }
 
     void TogglePause()
     {
         paused = !paused; Time.timeScale = paused ? 0f : 1f;
-        if (paused)
-        {
-            if (music.isPlaying) music.Pause();
-        }
-        else
-        {
-            music.UnPause();
-            dspStartTime = AudioSettings.dspTime - music.time;
-        }
+        if (paused) { if (music.isPlaying) music.Pause(); }
+        else { music.UnPause(); dspStartTime = AudioSettings.dspTime - music.time; }
         pausePanel.SetActive(paused);
     }
 
@@ -316,11 +459,13 @@ public class GameManager : MonoBehaviour
     public void ApplySpamPenalty()
     {
         if (!alive) return;
-        combo = 0; hp = Mathf.Max(0f, hp - 3f);
-        sfx.PlayOneShot(sMiss);
-        CameraShake.Instance?.Shake(.1f, .05f);
-        ShowResult("SPAM!", CM);
-        if (hp <= 0f) EndLevel(false);
+
+        // Ignore spam penalties entirely during Overdrive (God Mode!)
+        if (IsFeverActive) return;
+
+        combo = 0; currentFeverEnergy = 0; hp = Mathf.Max(0f, hp - 3f);
+        sfx.PlayOneShot(sMiss); CameraShake.Instance?.Shake(.1f, .05f);
+        ShowResult("SPAM!", CM); if (hp <= 0f) EndLevel(false);
         RefreshHUD();
     }
 
@@ -328,10 +473,42 @@ public class GameManager : MonoBehaviour
     {
         scoreTxt.text = score.ToString("N0");
         float acc = total > 0 ? (float)perfectHits / total * 100f : 100f;
-        accTxt.text = $"{acc:F1}%";
-        hpTxt.text = "\u2665 " + (int)hp;
+        accTxt.text = $"{acc:F1}%"; hpTxt.text = "\u2665 " + (int)hp;
+
         comboTxt.text = combo > 1 ? "x" + combo : "";
-        if (combo > 1) comboTxt.color = Color.Lerp(CYAN, MAGENTA, Mathf.Sin(Time.time * 7f) * .5f + .5f);
+
+        if (combo > 1)
+        {
+            if (IsFeverActive) comboTxt.color = GetHDR(GetFeverRGB());
+            else comboTxt.color = Color.Lerp(CYAN, MAGENTA, Mathf.Sin(Time.time * 7f) * .5f + .5f);
+        }
+
+        if (feverFillRT != null && feverEnergyTxt != null)
+        {
+            if (IsFeverActive)
+            {
+                feverFillRT.localScale = new Vector3(1f, 1f, 1f);
+                feverFillImg.color = GetHDR(GetFeverRGB());
+                feverEnergyTxt.text = "MAX";
+            }
+            else
+            {
+                // Temperature Style Logic! 
+                // Cyan (Cold) -> Yellow (Warm) -> Red (Hot)
+                float fill = Mathf.Clamp01((float)currentFeverEnergy / feverEnergyThreshold);
+
+                Color tempColor;
+                if (fill < 0.5f)
+                    tempColor = Color.Lerp(CYAN, CP, fill * 2f); // 0% to 50%
+                else
+                    tempColor = Color.Lerp(CP, CM, (fill - 0.5f) * 2f); // 50% to 100%
+
+                feverFillImg.color = GetHDR(tempColor);
+
+                feverEnergyTxt.text = $"{currentFeverEnergy} / {feverEnergyThreshold}";
+                feverFillRT.localScale = new Vector3(1f, fill, 1f);
+            }
+        }
     }
 
     void ShowResult(string lbl, Color col) { if (resultCo != null) StopCoroutine(resultCo); resultCo = StartCoroutine(ResultAnim(lbl, col)); }
@@ -353,9 +530,12 @@ public class GameManager : MonoBehaviour
         var cgo = new GameObject("_Canvas");
         var cv = cgo.AddComponent<Canvas>();
 
+        // --- THE NEON GLOW FIX ---
         cv.renderMode = RenderMode.ScreenSpaceCamera;
         cv.worldCamera = Camera.main;
         cv.planeDistance = 5f;
+        // -------------------------
+
         cv.sortingOrder = 20;
 
         var sc = cgo.AddComponent<CanvasScaler>(); sc.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -371,8 +551,36 @@ public class GameManager : MonoBehaviour
         accTxt = T(cgo, "100.0%", 26, new Vector2(-20, -20), A(1, 1), A(1, 1), TextAlignmentOptions.TopRight);
         accTxt.color = CYAN;
 
-        comboTxt = T(cgo, "", 72, new Vector2(0, 80), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
+        comboTxt = T(cgo, "", 72, new Vector2(0, 100), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center);
         comboTxt.color = CYAN; comboTxt.fontStyle = FontStyles.Bold;
+
+        feverUIContainer = new GameObject("FeverUIContainer");
+        feverUIContainer.transform.SetParent(cgo.transform, false);
+        var fContainerRT = feverUIContainer.AddComponent<RectTransform>();
+        fContainerRT.anchorMin = Vector2.zero; fContainerRT.anchorMax = Vector2.one;
+        fContainerRT.offsetMin = fContainerRT.offsetMax = Vector2.zero;
+
+        var fBG = new GameObject("FeverBG"); fBG.transform.SetParent(feverUIContainer.transform, false);
+        var fBGRt = fBG.AddComponent<RectTransform>();
+        fBGRt.anchorMin = A(1, 0.5f); fBGRt.anchorMax = A(1, 0.5f);
+        fBGRt.anchoredPosition = new Vector2(-60, 0);
+        fBGRt.sizeDelta = new Vector2(30, 350); // Made it slightly wider for that thermometer look
+        fBG.AddComponent<Image>().color = new Color(0.1f, 0.1f, 0.2f, 0.8f);
+        AddBorder(fBG, new Color(0.5f, 0.5f, 0.6f, 0.5f), 0.3f); // Calmer border to let the internal color pop
+
+        var fFill = new GameObject("FeverFill"); fFill.transform.SetParent(fBG.transform, false);
+        feverFillRT = fFill.AddComponent<RectTransform>();
+        feverFillRT.anchorMin = A(0, 0); feverFillRT.anchorMax = A(1, 1);
+        feverFillRT.offsetMin = feverFillRT.offsetMax = Vector2.zero;
+        feverFillRT.pivot = new Vector2(0.5f, 0f);
+        feverFillImg = fFill.AddComponent<Image>(); feverFillImg.color = GetHDR(CYAN);
+        feverFillRT.localScale = new Vector3(1, 0, 1);
+
+        feverTxt = T(feverUIContainer, "FEVER", 18, new Vector2(-60, 205), A(1, 0.5f), A(1, 0.5f), TextAlignmentOptions.Center);
+        feverTxt.color = new Color(1f, 1f, 1f, 0.7f);
+
+        feverEnergyTxt = T(feverUIContainer, "0 / 50", 14, new Vector2(-60, -195), A(1, 0.5f), A(1, 0.5f), TextAlignmentOptions.Center);
+        feverEnergyTxt.color = Color.white;
 
         resultTxt = T(cgo, "", 44, new Vector2(0, 10), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         resultTxt.fontStyle = FontStyles.Bold;
@@ -418,18 +626,6 @@ public class GameManager : MonoBehaviour
         NeonBtn(goPanel, "PLAY AGAIN", CYAN, new Vector2(-160, -95), () => Restart());
         NeonBtn(goPanel, "MENU", new Color(1f, 0.2f, 0.4f), new Vector2(160, -95), () => MainMenu());
 
-        var lbDiv = new GameObject("LBDiv"); lbDiv.transform.SetParent(goPanel.transform, false);
-        var ldRT = lbDiv.AddComponent<RectTransform>(); ldRT.anchorMin = new Vector2(.5f, .5f); ldRT.anchorMax = new Vector2(.5f, .5f);
-        ldRT.anchoredPosition = new Vector2(0, -140); ldRT.sizeDelta = new Vector2(680, 1.5f);
-        lbDiv.AddComponent<UnityEngine.UI.Image>().color = new Color(CYAN.r, CYAN.g, CYAN.b, .3f);
-
-        lbPanel = new GameObject("LBPanel"); lbPanel.transform.SetParent(goPanel.transform, false);
-        var lbRT = lbPanel.AddComponent<RectTransform>();
-        lbRT.anchorMin = new Vector2(.5f, .5f); lbRT.anchorMax = new Vector2(.5f, .5f);
-        lbRT.anchoredPosition = new Vector2(0, -255);
-        lbRT.sizeDelta = new Vector2(720, 220);
-        var lbBG = lbPanel.AddComponent<UnityEngine.UI.Image>(); lbBG.color = new Color(.01f, .02f, .05f, .0f);
-
         goPanel.SetActive(false);
 
         pausePanel = Panel(cgo, new Color(.01f, .02f, .08f, .93f));
@@ -444,25 +640,8 @@ public class GameManager : MonoBehaviour
         PauseBtn(pausePanel, "RESTART TRACK", new Color(.1f, 1f, .4f), new Vector2(0, -20), () => Restart());
         PauseBtn(pausePanel, "QUIT TO MENU", new Color(.4f, .5f, .6f), new Vector2(0, -100), () => MainMenu());
 
-        T(pausePanel, "CURRENT SCORE", 14, new Vector2(-220, -205), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center)
-            .color = new Color(1f, .85f, .2f, .7f);
-        var pScore = T(pausePanel, "0", 38, new Vector2(-220, -240), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        pScore.color = new Color(1f, .85f, .2f);
-        StartCoroutine(KeepPauseScore(pScore));
-
-        NeonLine(pausePanel, new Vector2(0, -185), new Vector2(0, -270), CYAN, .5f);
-
-        T(pausePanel, "COMBO MULTIPLIER", 14, new Vector2(220, -205), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center)
-            .color = new Color(.4f, .7f, 1f, .7f);
-        var pCombo = T(pausePanel, "x0", 38, new Vector2(220, -240), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        pCombo.color = new Color(.4f, .7f, 1f);
-        StartCoroutine(KeepPauseCombo(pCombo));
-
         pausePanel.SetActive(false);
     }
-
-    IEnumerator KeepPauseScore(TextMeshProUGUI t) { while (true) { if (t) t.text = score.ToString("N0"); yield return new WaitForSecondsRealtime(.1f); } }
-    IEnumerator KeepPauseCombo(TextMeshProUGUI t) { while (true) { if (t) t.text = "x" + maxCombo; yield return new WaitForSecondsRealtime(.1f); } }
 
     static Vector2 A(float x, float y) => new Vector2(x, y);
 
@@ -503,7 +682,7 @@ public class GameManager : MonoBehaviour
         AddBorder(go, GetHDR(col), 1f);
         var btn = go.AddComponent<Button>(); btn.targetGraphic = img; btn.onClick.AddListener(cb);
 
-        var tgo = Label(go, lbl, 26, GetHDR(col));
+        Label(go, lbl, 26, GetHDR(col));
     }
 
     void PauseBtn(GameObject p, string lbl, Color col, Vector2 pos, UnityEngine.Events.UnityAction cb)
