@@ -7,10 +7,20 @@ public class PlayerController : MonoBehaviour
 {
     public static PlayerController Instance { get; private set; }
 
-    [Header("Hit Tuning")]
-    [Tooltip("The absolute maximum distance to catch a Good hit. Higher = more forgiving.")]
-    public float hitZoneDistance = 2.2f;
-    public float perfectZone = 0.6f;
+    [Header("Asymmetrical Hit Zones")]
+    [Tooltip("How far ABOVE the key can you hit for an EARLY rating?")]
+    public float earlyDistance = 2.8f;
+    [Tooltip("How far ABOVE the key can you hit for a GOOD rating?")]
+    public float earlyGoodDistance = 1.2f;
+    [Tooltip("How far ABOVE the key does the PERFECT zone start?")]
+    public float earlyPerfectDistance = 0.4f;
+
+    [Tooltip("How far BELOW the hit line does the PERFECT zone end?")]
+    public float latePerfectDistance = -0.2f;
+    [Tooltip("How far BELOW the key can you hit for a GOOD rating?")]
+    public float lateGoodDistance = -0.8f;
+    [Tooltip("How far BELOW the key can you hit for a LATE rating?")]
+    public float lateDistance = -1.4f;
 
     [Header("Instant Audio Feedback")]
     public AudioClip hitSound;
@@ -35,13 +45,15 @@ public class PlayerController : MonoBehaviour
     Tile[] heldTile = new Tile[4];
     readonly List<Tile> tiles = new List<Tile>();
 
-    // UI Elements
     GameObject backplateRoot;
     GameObject[] zoneRoots;
     SpriteRenderer[] zoneGlows;
     SpriteRenderer[] zoneRings;
     SpriteRenderer[] zoneBGs;
     TextMeshPro[] zoneLabels;
+
+    // NEW: Reference to make the laser pulse
+    SpriteRenderer laserGlowSR;
 
     void Awake()
     {
@@ -96,10 +108,16 @@ public class PlayerController : MonoBehaviour
 
         float boxW = spacing * 0.94f;
         float boxH = 0.85f;
+        float uiOffset = -0.55f;
 
         backplateRoot = new GameObject("HitZonesBackplate");
         backplateRoot.transform.SetParent(transform);
-        var bpSR = backplateRoot.AddComponent<SpriteRenderer>();
+
+        var bpVisualGO = new GameObject("BP_Sprite");
+        bpVisualGO.transform.SetParent(backplateRoot.transform, false);
+        bpVisualGO.transform.localPosition = new Vector3(0f, uiOffset, 0f);
+
+        var bpSR = bpVisualGO.AddComponent<SpriteRenderer>();
         bpSR.sprite = MakeRoundedSolid();
         bpSR.drawMode = SpriteDrawMode.Sliced;
         bpSR.color = new Color(0.08f, 0.12f, 0.16f, 0.85f);
@@ -118,6 +136,7 @@ public class PlayerController : MonoBehaviour
             zoneRoots[i] = root;
 
             var bgGO = new GameObject("BG"); bgGO.transform.SetParent(root.transform, false);
+            bgGO.transform.localPosition = new Vector3(0f, uiOffset, 0f);
             var bgSR = bgGO.AddComponent<SpriteRenderer>();
             bgSR.sprite = roundedSolidSprite;
             bgSR.drawMode = SpriteDrawMode.Sliced;
@@ -128,6 +147,7 @@ public class PlayerController : MonoBehaviour
             zoneBGs[i] = bgSR;
 
             var ringGO = new GameObject("Border"); ringGO.transform.SetParent(root.transform, false);
+            ringGO.transform.localPosition = new Vector3(0f, uiOffset, 0f);
             var ringSR = ringGO.AddComponent<SpriteRenderer>();
             ringSR.sprite = roundedBorderSprite;
             ringSR.drawMode = SpriteDrawMode.Sliced;
@@ -138,7 +158,7 @@ public class PlayerController : MonoBehaviour
             zoneRings[i] = ringSR;
 
             var glowGO = new GameObject("Glow"); glowGO.transform.SetParent(root.transform, false);
-            glowGO.transform.localPosition = new Vector3(0f, -boxH * 0.4f, 0f);
+            glowGO.transform.localPosition = new Vector3(0f, uiOffset - (boxH * 0.4f), 0f);
             var glowSR = glowGO.AddComponent<SpriteRenderer>();
             glowSR.sprite = MakeGlow();
             glowSR.sortingOrder = 19;
@@ -148,7 +168,7 @@ public class PlayerController : MonoBehaviour
             zoneGlows[i] = glowSR;
 
             var lblGO = new GameObject("Lbl"); lblGO.transform.SetParent(root.transform, false);
-            lblGO.transform.localPosition = new Vector3(0f, 0f, -0.1f);
+            lblGO.transform.localPosition = new Vector3(0f, uiOffset, -0.1f);
             var tmp = lblGO.AddComponent<TextMeshPro>();
             tmp.text = activeLabels[i];
             tmp.fontSize = 4.8f;
@@ -158,12 +178,44 @@ public class PlayerController : MonoBehaviour
             tmp.sortingOrder = 22;
             zoneLabels[i] = tmp;
         }
+
+        // --- NEW: THE GLOWING PERFECT HIT LINE (LASER) ---
+        var laserGO = new GameObject("HitLine_Core");
+        laserGO.transform.SetParent(backplateRoot.transform, false);
+        // Positioned exactly at mathematical 0 (the true center of the Perfect zone)
+        laserGO.transform.localPosition = new Vector3(0f, 0f, -0.2f);
+
+        var laserSR = laserGO.AddComponent<SpriteRenderer>();
+        laserSR.sprite = MakeRoundedSolid();
+        laserSR.drawMode = SpriteDrawMode.Sliced;
+        laserSR.size = new Vector2((count * spacing) + 0.6f, 0.06f);
+        laserSR.color = new Color(1f, 1f, 1f, 0.9f); // Solid white core
+        laserSR.sortingOrder = 24; // Renders visually above the keys
+        laserSR.material = new Material(Shader.Find("Sprites/Default"));
+
+        var laserGlowGO = new GameObject("HitLine_Glow");
+        laserGlowGO.transform.SetParent(laserGO.transform, false);
+        laserGlowGO.transform.localPosition = Vector3.zero;
+
+        laserGlowSR = laserGlowGO.AddComponent<SpriteRenderer>();
+        laserGlowSR.sprite = MakeGlow();
+        laserGlowSR.transform.localScale = new Vector3(((count * spacing) + 0.6f) * 0.8f, 0.5f, 1f);
+        laserGlowSR.color = new Color(0f, 0.9f, 1f, 0.5f); // Cyan neon glow
+        laserGlowSR.sortingOrder = 23;
+        laserGlowSR.material = new Material(Shader.Find("Sprites/Default"));
     }
 
     void Update()
     {
         if (!GameManager.Instance || !GameManager.Instance.IsGameActive()) return;
         var tc = TrackController.Instance;
+
+        // --- NEW: Pulsating animation for the laser line ---
+        if (laserGlowSR != null)
+        {
+            float pulse = 0.4f + Mathf.Sin(Time.time * 8f) * 0.2f;
+            laserGlowSR.color = new Color(0f, 0.9f, 1f, pulse);
+        }
 
         Vector3 centerPos = Vector3.zero;
         for (int i = 0; i < zoneRoots.Length; i++) centerPos += tc.HitPos(i);
@@ -195,45 +247,67 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    // --- THE COMPLETELY REBUILT HIT LOGIC ---
     void TryHit(int lane)
     {
         Tile best = null;
-        float bestDist = float.MaxValue;
-
-        // Dynamic multiplier prevents Hard mode from having impossibly tight windows
-        float speedMultiplier = TrackController.Instance != null ? TileSpawner.Instance.tileSpeed / 7f : 1f;
-
-        // This is now the definitive, absolute catch area. No more traps.
-        float currentPerfectZone = perfectZone * speedMultiplier;
-        float currentGoodZone = hitZoneDistance * speedMultiplier;
-
+        float bestSignedDist = float.MaxValue;
+        float minAbsDist = float.MaxValue;
         bool areTilesInLane = false;
 
-        // 1. Find the absolutely closest tile in this lane
+        float speedMultiplier = TrackController.Instance != null ? TileSpawner.Instance.tileSpeed / 7f : 1f;
+
+        float currentEarly = earlyDistance * speedMultiplier;
+        float currentEarlyGood = earlyGoodDistance * speedMultiplier;
+        float currentEarlyPerfect = earlyPerfectDistance * speedMultiplier;
+
+        float currentLatePerfect = latePerfectDistance * speedMultiplier;
+        float currentLateGood = lateGoodDistance * speedMultiplier;
+        float currentLate = lateDistance * speedMultiplier;
+
+        Vector3 moveDir = TrackController.Instance.MoveDir();
+        Vector3 hitPos = TrackController.Instance.HitPos(lane);
+
         for (int i = 0; i < tiles.Count; i++)
         {
             Tile t = tiles[i];
             if (t == null || t.IsHit || t.IsMissed || t.lane != lane) continue;
-
             areTilesInLane = true;
-            float d = t.DistToHitLine;
 
-            // Only grab it if it's the closest one
-            if (d < bestDist)
+            float signedDist = Vector3.Dot(hitPos - t.transform.position, moveDir);
+
+            if (signedDist < currentLate) continue;
+
+            float absDist = Mathf.Abs(signedDist);
+            if (absDist < minAbsDist)
             {
-                bestDist = d;
+                minAbsDist = absDist;
+                bestSignedDist = signedDist;
                 best = t;
             }
         }
 
-        // 2. Evaluate the hit fairly
         if (best != null)
         {
-            // If it is anywhere inside the massive Good zone, it is a guaranteed hit!
-            if (bestDist <= currentGoodZone)
+            if (bestSignedDist <= currentEarly && bestSignedDist >= currentLate)
             {
-                HitResult result = (bestDist <= currentPerfectZone) ? HitResult.Perfect : HitResult.Good;
+                HitResult result = HitResult.Miss;
+
+                if (bestSignedDist <= currentEarlyPerfect && bestSignedDist >= currentLatePerfect)
+                {
+                    result = HitResult.Perfect;
+                }
+                else if (bestSignedDist <= currentEarlyGood && bestSignedDist >= currentLateGood)
+                {
+                    result = HitResult.Good;
+                }
+                else if (bestSignedDist > currentEarlyGood && bestSignedDist <= currentEarly)
+                {
+                    result = HitResult.Early;
+                }
+                else if (bestSignedDist < currentLateGood && bestSignedDist >= currentLate)
+                {
+                    result = HitResult.Late;
+                }
 
                 if (hitSound != null && fastAudioSource != null)
                     fastAudioSource.PlayOneShot(hitSound, 0.8f);
@@ -250,16 +324,9 @@ public class PlayerController : MonoBehaviour
                     best.Hit(result);
                 }
             }
-            else
-            {
-                // The tile is too far away to hit, but they tried! 
-                // We do NOT drop their input into a penalty trap here. 
-                // We do nothing, allowing them to instantly press the key again when it gets closer.
-            }
         }
         else
         {
-            // ONLY punish if the lane is completely empty (true button mashing)
             if (!areTilesInLane && GameManager.Instance != null)
             {
                 GameManager.Instance.ApplySpamPenalty();

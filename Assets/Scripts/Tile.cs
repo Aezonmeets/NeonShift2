@@ -101,7 +101,6 @@ public class Tile : MonoBehaviour
     {
         if (IsHit || IsMissed) return;
 
-        // ── NEW: Stop moving if the game is over or paused ──
         if (GameManager.Instance != null && !GameManager.Instance.IsGameActive()) return;
 
         var tc = TrackController.Instance;
@@ -122,6 +121,15 @@ public class Tile : MonoBehaviour
 
         float distPast = currentDist - tc.hitDist;
 
+        // --- NEW: Calculate the exact absolute miss distance based on difficulty ---
+        float missDistance = 0.08f;
+        if (PlayerController.Instance != null)
+        {
+            // We convert the negative lateGoodDistance to a positive threshold 
+            // and add a tiny 0.1 buffer so it doesn't trigger the exact frame it becomes unhittable
+            missDistance = Mathf.Abs(PlayerController.Instance.lateGoodDistance) + 0.1f;
+        }
+
         if (isLong)
         {
             float tailEndDist = currentDist - holdLength;
@@ -139,12 +147,15 @@ public class Tile : MonoBehaviour
                 DistToHitLine = 999f;
             }
 
-            if (tailEndDist > tc.hitDist + 0.080f) Miss();
+            // Only die after the TAIL has passed the late good zone
+            if (tailEndDist > tc.hitDist + missDistance) Miss();
         }
         else
         {
             DistToHitLine = distPast <= 0f ? Mathf.Abs(distPast) : 999f;
-            if (distPast > 0.080f) Miss();
+
+            // Only die after the HEAD has passed the late good zone
+            if (distPast > missDistance) Miss();
         }
     }
 

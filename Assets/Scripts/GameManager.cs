@@ -4,7 +4,6 @@ using TMPro;
 using System.Collections;
 using UnityEngine.SceneManagement;
 
-// --- WE MOVED THE SONG DATA DIRECTLY INTO THE GAME MANAGER ---
 [System.Serializable]
 public struct SongData
 {
@@ -13,23 +12,24 @@ public struct SongData
 }
 
 public enum GameMode { Easy, Medium, Hard, Endless }
-public enum HitResult { Perfect, Good, Miss }
+public enum HitResult { Perfect, Good, Early, Late, Miss }
 
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
     [HideInInspector] public GameMode currentMode = GameMode.Easy;
 
-    [Header("Glow Settings")]
-    [Tooltip("Increase this to make the Game Over screen neon colors glow brighter!")]
+    [Header("Visuals & Background")]
     public float glowIntensity = 2.5f;
+    [Tooltip("Drag your Hexagon background sprite here!")]
+    public Sprite backgroundImage;
+    [Tooltip("How bright should the background be? (0 = black, 1 = full brightness)")]
+    [Range(0f, 1f)] public float backgroundBrightness = 0.3f;
 
     [Header("Level Songs")]
-    [Tooltip("Add all your songs here! Make sure the names match the Main Menu perfectly.")]
     public SongData[] allSongs;
 
     [Header("Custom Sound Effects")]
-    [Tooltip("Assign your own sound effects here. If left empty, the game will use default procedural beeps.")]
     public AudioClip customPerfectSound;
     public AudioClip customGoodSound;
     public AudioClip customMissSound;
@@ -39,34 +39,23 @@ public class GameManager : MonoBehaviour
     bool alive, paused;
     bool musicStarted = false;
 
-    // --- DSP AUDIO SYNC VARIABLES ---
     double dspStartTime;
 
-    // HUD
     TextMeshProUGUI scoreTxt, comboTxt, accTxt, hpTxt, resultTxt;
-
-    // Game Over / Level Clear
     TextMeshProUGUI goScore, goAcc, goCombo, goTitle;
     GameObject goPanel, pausePanel, lbPanel;
     Coroutine resultCo;
 
-    // Music
     AudioSource music;
     AudioSource sfx;
     AudioClip sPerfect, sGood, sMiss;
 
     static readonly Color CP = new Color(1f, .95f, .15f);
     static readonly Color CG = new Color(.1f, 1f, .6f);
+    static readonly Color CO = new Color(1f, .6f, .1f);
     static readonly Color CM = new Color(1f, .2f, .35f);
     static readonly Color CYAN = new Color(0f, .9f, 1f);
     static readonly Color MAGENTA = new Color(1f, .15f, .75f);
-
-    static readonly Color[] ModeColors = {
-        new Color(.1f,1f,.4f),    // Easy
-        new Color(1f,.85f,.1f),   // Medium
-        new Color(1f,.35f,.1f),   // Hard
-        new Color(.8f,.1f,1f),    // Endless
-    };
 
     void Awake()
     {
@@ -79,14 +68,18 @@ public class GameManager : MonoBehaviour
         foreach (var c in FindObjectsByType<Canvas>(FindObjectsSortMode.None))
             if (c.gameObject != gameObject) Destroy(c.gameObject);
 
-        sfx = gameObject.AddComponent<AudioSource>(); sfx.volume = .55f;
+        sfx = gameObject.AddComponent<AudioSource>();
+        sfx.volume = 1.0f; // Max volume so hit sounds pop!
+
         music = gameObject.AddComponent<AudioSource>();
-        music.loop = true; music.volume = .7f;
+        music.loop = true;
+        music.volume = 0.45f; // Lowered to let the osu! hits cut through
 
         sPerfect = customPerfectSound != null ? customPerfectSound : Beep(880f, .08f);
         sGood = customGoodSound != null ? customGoodSound : Beep(660f, .06f);
         sMiss = customMissSound != null ? customMissSound : Beep(110f, .13f, true);
 
+        SetupBackground();
         BuildUI();
     }
 
@@ -100,15 +93,40 @@ public class GameManager : MonoBehaviour
         TryPlayMusic();
     }
 
+    void SetupBackground()
+    {
+        if (backgroundImage == null) return;
+
+        GameObject bgObj = new GameObject("DynamicBackground");
+
+        bgObj.transform.SetParent(Camera.main.transform);
+        bgObj.transform.localPosition = new Vector3(0f, 0f, 10f);
+
+        SpriteRenderer bgSR = bgObj.AddComponent<SpriteRenderer>();
+        bgSR.sprite = backgroundImage;
+        bgSR.sortingOrder = -100;
+        bgSR.color = new Color(backgroundBrightness, backgroundBrightness, backgroundBrightness, 1f);
+
+        float camHeight = Camera.main.orthographicSize * 2f;
+        float camWidth = camHeight * Camera.main.aspect;
+
+        float spriteHeight = bgSR.sprite.bounds.size.y;
+        float spriteWidth = bgSR.sprite.bounds.size.x;
+
+        float scaleX = camWidth / spriteWidth;
+        float scaleY = camHeight / spriteHeight;
+        float finalScale = Mathf.Max(scaleX, scaleY);
+
+        bgObj.transform.localScale = new Vector3(finalScale, finalScale, 1f);
+    }
+
     Color GetHDR(Color c) => new Color(c.r * glowIntensity, c.g * glowIntensity, c.b * glowIntensity, 1f);
 
-    // ── THE NEW, FIXED SONG LOADER ───────────────────────────────────
     void TryPlayMusic()
     {
         string pickedSong = PlayerPrefs.GetString("SelectedSong", "");
         AudioClip clipToPlay = null;
 
-        // Search our new list for the selected song
         foreach (var song in allSongs)
         {
             if (song.songName == pickedSong)
@@ -121,23 +139,13 @@ public class GameManager : MonoBehaviour
         if (clipToPlay != null)
         {
             music.clip = clipToPlay;
-            
-            // Sync BPM if we are not in Endless mode
             if (currentMode != GameMode.Endless && TileSpawner.Instance != null)
                 TileSpawner.Instance.SetDynamicBPM(clipToPlay.name);
 
-            // Loop the song ONLY if we are in endless mode!
             music.loop = (currentMode == GameMode.Endless);
             music.Play();
-
-            // --- RECORD EXACT AUDIO HARDWARE TIME FOR RHYTHM SYNC ---
             dspStartTime = AudioSettings.dspTime;
             musicStarted = true;
-            Debug.Log($"<color=green>[Music] Successfully Playing: {pickedSong}</color>");
-        }
-        else
-        {
-            Debug.LogError($"<color=red>[Music] Could not find '{pickedSong}' in GameManager's All Songs list! Check your spelling.</color>");
         }
     }
 
@@ -161,7 +169,6 @@ public class GameManager : MonoBehaviour
                 StartCoroutine(TrackClearRoutine());
             }
         }
-
         RefreshHUD();
     }
 
@@ -173,16 +180,37 @@ public class GameManager : MonoBehaviour
 
     void ApplyMode()
     {
-        var ts = TileSpawner.Instance; var tc = TrackController.Instance; var pc = PlayerController.Instance;
+        var ts = TileSpawner.Instance;
+        var tc = TrackController.Instance;
+        var pc = PlayerController.Instance;
+
         switch (currentMode)
         {
-            case GameMode.Easy: ts.spawnInterval = 1.3f; ts.tileSpeed = 5f; tc.rotationInterval = 9f; pc.hitZoneDistance = 1.4f; break;
-            case GameMode.Medium: ts.spawnInterval = 0.95f; ts.tileSpeed = 7f; tc.rotationInterval = 6f; pc.hitZoneDistance = 1.2f; break;
-            case GameMode.Hard: ts.spawnInterval = 0.6f; ts.tileSpeed = 10f; tc.rotationInterval = 4f; pc.hitZoneDistance = 1.0f; break;
-            case GameMode.Endless: ts.spawnInterval = 1.3f; ts.tileSpeed = 5f; tc.rotationInterval = 9f; pc.hitZoneDistance = 1.3f; ts.endlessMode = true; break;
+            case GameMode.Easy:
+                ts.spawnInterval = 1.3f; ts.tileSpeed = 5f; tc.rotationInterval = 9f;
+                pc.earlyDistance = 3.0f; pc.earlyGoodDistance = 1.5f; pc.earlyPerfectDistance = 0.6f;
+                pc.latePerfectDistance = -0.4f; pc.lateGoodDistance = -1.2f; pc.lateDistance = -1.8f;
+                break;
+            case GameMode.Medium:
+                ts.spawnInterval = 0.95f; ts.tileSpeed = 7f; tc.rotationInterval = 6f;
+                pc.earlyDistance = 2.8f; pc.earlyGoodDistance = 1.2f; pc.earlyPerfectDistance = 0.4f;
+                pc.latePerfectDistance = -0.2f; pc.lateGoodDistance = -0.8f; pc.lateDistance = -1.4f;
+                break;
+            case GameMode.Hard:
+                ts.spawnInterval = 0.6f; ts.tileSpeed = 10f; tc.rotationInterval = 4f;
+                pc.earlyDistance = 2.4f; pc.earlyGoodDistance = 0.8f; pc.earlyPerfectDistance = 0.2f;
+                pc.latePerfectDistance = -0.1f; pc.lateGoodDistance = -0.5f; pc.lateDistance = -1.0f;
+                break;
+            case GameMode.Endless:
+                ts.spawnInterval = 1.3f; ts.tileSpeed = 5f; tc.rotationInterval = 9f;
+                pc.earlyDistance = 2.8f; pc.earlyGoodDistance = 1.2f; pc.earlyPerfectDistance = 0.4f;
+                pc.latePerfectDistance = -0.2f; pc.lateGoodDistance = -0.8f; pc.lateDistance = -1.4f;
+                ts.endlessMode = true;
+                break;
         }
     }
 
+    // --- HARDCORE SCORING: Only Perfect builds combo! ---
     public void RegisterHit(HitResult r, Vector3 pos)
     {
         total++;
@@ -190,11 +218,35 @@ public class GameManager : MonoBehaviour
         switch (r)
         {
             case HitResult.Perfect:
-                perfectHits++; combo++; score += 100 + combo * 5; lbl = "PERFECT!"; col = CP; sfx.PlayOneShot(sPerfect); break;
+                perfectHits++;
+                combo++; // Builds combo
+                score += 100 + combo * 5;
+                lbl = "PERFECT!"; col = CP;
+                sfx.PlayOneShot(sPerfect, 1.2f);
+                break;
             case HitResult.Good:
-                combo = 0; score += 50; lbl = "GOOD"; col = CG; sfx.PlayOneShot(sGood); break;
+                combo = 0; // Breaks combo!
+                score += 50;
+                lbl = "GOOD"; col = CG;
+                sfx.PlayOneShot(sGood);
+                break;
+            case HitResult.Early:
+                combo = 0; // Breaks combo!
+                score += 20;
+                lbl = "EARLY"; col = CO;
+                sfx.PlayOneShot(sGood, 0.8f);
+                break;
+            case HitResult.Late:
+                combo = 0; // Breaks combo!
+                score += 20;
+                lbl = "LATE"; col = CO;
+                sfx.PlayOneShot(sGood, 0.8f);
+                break;
             default:
-                combo = 0; hp = Mathf.Max(0f, hp - 10f); lbl = "MISS"; col = CM; sfx.PlayOneShot(sMiss);
+                combo = 0; // Breaks combo!
+                hp = Mathf.Max(0f, hp - 10f);
+                lbl = "MISS"; col = CM;
+                sfx.PlayOneShot(sMiss);
                 CameraShake.Instance?.Shake(.2f, .1f);
                 if (hp <= 0f) { EndLevel(false); return; }
                 break;
@@ -245,7 +297,6 @@ public class GameManager : MonoBehaviour
         else
         {
             music.UnPause();
-            // --- RESYNC DSP TIME ---
             dspStartTime = AudioSettings.dspTime - music.time;
         }
         pausePanel.SetActive(paused);
@@ -257,14 +308,8 @@ public class GameManager : MonoBehaviour
 
     public float GetMusicTime()
     {
-        if (music != null && music.clip != null && music.isPlaying && !paused)
-        {
-            return (float)(AudioSettings.dspTime - dspStartTime);
-        }
-        else if (music != null && paused)
-        {
-            return music.time;
-        }
+        if (music != null && music.clip != null && music.isPlaying && !paused) return (float)(AudioSettings.dspTime - dspStartTime);
+        else if (music != null && paused) return music.time;
         return 0f;
     }
 
@@ -303,7 +348,6 @@ public class GameManager : MonoBehaviour
         resultTxt.text = "";
     }
 
-    // ── UI BUILD ───────────────────────────────────
     void BuildUI()
     {
         var cgo = new GameObject("_Canvas");
@@ -353,7 +397,6 @@ public class GameManager : MonoBehaviour
 
         NeonLine(statsBox, new Vector2(-375, 70), new Vector2(375, 70), GetHDR(CYAN), 1f);
         NeonLine(statsBox, new Vector2(-375, -70), new Vector2(375, -70), GetHDR(CYAN), 1f);
-
         NeonLine(statsBox, new Vector2(-125, 50), new Vector2(-125, -50), GetHDR(CYAN), 0.5f);
         NeonLine(statsBox, new Vector2(125, 50), new Vector2(125, -50), GetHDR(CYAN), 0.5f);
 

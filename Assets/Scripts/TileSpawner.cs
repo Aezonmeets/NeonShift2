@@ -44,9 +44,9 @@ public class TileSpawner : MonoBehaviour
         {
             case GameMode.Easy: tileSpeed = 7.0f; break;
             case GameMode.Medium: tileSpeed = 12.0f; break;
-            // Slightly slower approach rate for Hard to give the eyes more reaction time
             case GameMode.Hard: tileSpeed = 14.5f; break;
-            case GameMode.Endless: tileSpeed = 8.5f; endlessMode = true; break;
+            // Slightly faster starting speed for Endless so it doesn't feel sluggish early on
+            case GameMode.Endless: tileSpeed = 9.5f; endlessMode = true; break;
         }
     }
 
@@ -70,6 +70,7 @@ public class TileSpawner : MonoBehaviour
         else if (n.Contains("baby")) trackOffset = 0.1f;
         else if (n.Contains("again")) trackOffset = 0.3f;
         else if (n.Contains("beggin")) trackOffset = 0.05f;
+        else if (n.Contains("shake")) trackOffset = 0.1f;
 
         Debug.Log($"[TileSpawner] Generating Spaced Rhythm for '{clip.name}'...");
         proceduralBeatmap = GenerateCleanBeatmap(clip);
@@ -190,11 +191,7 @@ public class TileSpawner : MonoBehaviour
             if (mode == GameMode.Hard && !isWarmup)
             {
                 if (isQuarter && (bassProminence > 0.05f || trebleProminence > 0.05f || midProminence > 0.05f || midVolume > 0.1f)) spawnThis = true;
-
-                // 8ths: Made stricter to space out standard patterns
                 if (is8th && !isQuarter && (bassProminence > 0.2f || trebleProminence > 0.2f || midProminence > 0.25f)) spawnThis = true;
-
-                // 16ths: Made significantly stricter. Will only spawn on distinct, sharp drum rolls.
                 if (is16th && (trebleProminence > 0.5f || bassProminence > 0.55f || midProminence > 0.6f)) spawnThis = true;
 
                 if (spawnThis)
@@ -216,7 +213,6 @@ public class TileSpawner : MonoBehaviour
                         }
                     }
 
-                    // Chords: Increased minimum gap between double-notes from 0.3 to 0.5 seconds
                     if (!spawnHold && isQuarter && bassProminence > 0.35f && (currentHitTime - lastChordTime > 0.5f))
                     {
                         tileCount = 2; lastChordTime = currentHitTime;
@@ -228,9 +224,17 @@ public class TileSpawner : MonoBehaviour
                 if (isQuarter && (bassProminence > 0.05f || trebleProminence > 0.05f || midProminence > 0.05f || midVolume > 0.1f)) spawnThis = true;
                 if (is8th && !isQuarter && (trebleProminence > 0.35f || midProminence > 0.4f)) spawnThis = true;
             }
-            else // Easy
+            else // --- THE NEW, RHYTHMIC EASY MODE ---
             {
-                if (isQuarter && (bassProminence > 0.05f || trebleProminence > 0.05f || midVolume > 0.1f)) spawnThis = true;
+                // In 4/4 time, Beats 1 and 3 are the strongest physical pulses in a song.
+                // We lock them in so Easy mode never feels like it's drifting randomly.
+                bool isStrongDownbeat = (inBar16th == 0 || inBar16th == 8);
+
+                // Lowered the thresholds so it triggers consistently on the main rhythm
+                if (isQuarter && (isStrongDownbeat || bassProminence > 0.02f || trebleProminence > 0.03f || midVolume > 0.08f))
+                {
+                    spawnThis = true;
+                }
             }
 
             if (spawnThis)
@@ -373,28 +377,48 @@ public class TileSpawner : MonoBehaviour
     IEnumerator EndlessLoop()
     {
         yield return new WaitForSeconds(1.5f);
-        int beat = 0; int lastEndlessLane = -1;
+        int beat = 0;
+        int lastEndlessLane = -1;
+
+        float maxTileSpeed = 25f;
+        float maxBPM = 350f;
+
         while (isSpawning)
         {
-            float density = Mathf.Clamp01((tileSpeed - 5f) / 11f);
+            // --- FASTER ASCENSION PACING ---
+            // Doubled the growth rate. The speed and density will climb noticeably faster.
+            if (tileSpeed < maxTileSpeed) tileSpeed += 0.05f;
+            if (bpm < maxBPM) bpm += 1.0f;
+
+            // Tightened the density calculation so the chaotic patterns kick in much sooner
+            float density = Mathf.Clamp01((tileSpeed - 5f) / 8f);
+
             int inBar = beat % 4;
+
             if ((inBar == 0 || inBar == 2) || Random.value < 0.35f + density * 0.3f)
             {
                 if (beat > 4 && beat % 8 == 0 && Random.value < 0.4f + density * 0.2f)
                 {
-                    int l = Random.Range(0, 4); SpawnLongTile(l, Random.Range(1.5f, 3.5f)); lastEndlessLane = l;
+                    int l = Random.Range(0, 4);
+                    SpawnLongTile(l, Random.Range(1.5f, 3.5f));
+                    lastEndlessLane = l;
                 }
                 else
                 {
-                    int l1 = Random.Range(0, 4); if (l1 == lastEndlessLane) l1 = (l1 + 1) % 4;
-                    SpawnNormalTile(l1); lastEndlessLane = l1;
+                    int l1 = Random.Range(0, 4);
+                    if (l1 == lastEndlessLane) l1 = (l1 + 1) % 4;
+                    SpawnNormalTile(l1);
+                    lastEndlessLane = l1;
+
                     if (density > 0.5f && Random.value < density * 0.35f)
                     {
-                        int l2 = Random.Range(0, 4); if (l2 != l1) SpawnNormalTile(l2);
+                        int l2 = Random.Range(0, 4);
+                        if (l2 != l1) SpawnNormalTile(l2);
                     }
                 }
             }
-            beat++; yield return new WaitForSeconds(60f / Mathf.Max(60f, bpm));
+            beat++;
+            yield return new WaitForSeconds(60f / Mathf.Max(60f, bpm));
         }
     }
 
@@ -403,13 +427,35 @@ public class TileSpawner : MonoBehaviour
     float DetectBPM(string name)
     {
         string n = name.ToLower();
+
+        // --- ENDLESS ---
+        if (n.Contains("blinding lights")) return 171f;
+        if (n.Contains("batidão") || n.Contains("batidao")) return 130f;
+        if (n.Contains("crazy frog")) return 138f;
+
+        // --- HARD ---
+        if (n.Contains("bad guy")) return 135f;
+        if (n.Contains("overpass")) return 176f;
+        if (n.Contains("beggin")) return 129f;
+        if (n.Contains("embarrassing")) return 114f;
         if (n.Contains("runaway") || n.Contains("baby")) return 164f;
         if (n.Contains("blueprint") || n.Contains("supreme")) return 176f;
-        if (n.Contains("uptown") || n.Contains("funk")) return 115f;
-        if (n.Contains("numb")) return 110f;
-        if (n.Contains("overpass")) return 176f;
+        if (n.Contains("simple")) return 128f;
+
+        // --- MEDIUM ---
+        if (n.Contains("from the start")) return 82f;
+        if (n.Contains("see you again")) return 79f;
+        if (n.Contains("cant stop") || n.Contains("feeling")) return 113f;
+        if (n.Contains("bloody mary")) return 104f;
+        if (n.Contains("believer")) return 125f;
+        if (n.Contains("don't start now") || n.Contains("dont start now")) return 124f;
+
+        // --- EASY ---
+        if (n.Contains("twilight zone")) return 128f;
         if (n.Contains("pyramid")) return 94f;
-        if (n.Contains("beggin")) return 129f;
+        if (n.Contains("uptown") || n.Contains("funk")) return 115f;
+        if (n.Contains("shake it off")) return 160f;
+
         return mode == GameMode.Hard ? 140f : mode == GameMode.Medium ? 115f : 90f;
     }
 
