@@ -289,6 +289,8 @@ MonoBehaviour:
   tileSpeed: 6
   bpm: 80
   endlessMode: 0
+  globalAudioOffset: 0
+  autoTrackOffset: 0
   trackOffset: 0
 --- !u!4 &135700435
 Transform:
@@ -789,6 +791,8 @@ GameObject:
   m_Component:
   - component: {fileID: 1629463987}
   - component: {fileID: 1629463986}
+  - component: {fileID: 1629463989}
+  - component: {fileID: 1629463988}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -810,6 +814,47 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   currentMode: 0
   glowIntensity: 2
+  allSongs:
+  - songName: From the start - Laufey
+    audioClip: {fileID: 8300000, guid: 112f153d8d4f58d418d2e69289ed30cc, type: 3}
+  - songName: Don't Start Now - Dua Lipa
+    audioClip: {fileID: 8300000, guid: a6b8772505732334db0fcc233fef9301, type: 3}
+  - songName: Believer - Imagine Dragons
+    audioClip: {fileID: 8300000, guid: 1194b7938c944ea40b45d3c33a0e3615, type: 3}
+  - songName: Bloody Mary - Lady Gaga
+    audioClip: {fileID: 8300000, guid: e42be2708bdb234488165c3f746894fa, type: 3}
+  - songName: See you again - Tyler the Creator
+    audioClip: {fileID: 8300000, guid: dad1da7f69fe618469655ad2b410e8e8, type: 3}
+  - songName: Cant stop the feeling - Justin Timberlake
+    audioClip: {fileID: 8300000, guid: 8cc6c872456134c4b96411f3ee907ea2, type: 3}
+  - songName: Twilight Zone - Ariana Grande
+    audioClip: {fileID: 8300000, guid: f59e7352384440548acbc4bab6cee622, type: 3}
+  - songName: Pyramid - Charice
+    audioClip: {fileID: 8300000, guid: ca8657542bcbea74885543df0750f92f, type: 3}
+  - songName: Shake It Off - Taylor Swift
+    audioClip: {fileID: 8300000, guid: f724d81273305f443898a8c4cf96b38b, type: 3}
+  - songName: Bad Guy - Billie Eilish
+    audioClip: {fileID: 8300000, guid: de9e860617519ba44b074acb4408c797, type: 3}
+  - songName: Overpass Graffiti - Ed Sheeran
+    audioClip: {fileID: 8300000, guid: 470bda02443f3ad4ab2005a029f973be, type: 3}
+  - songName: Beggin' - Maneskin
+    audioClip: {fileID: 8300000, guid: a5c93863c5a5cb34fbec7ca8611371d9, type: 3}
+  - songName: Love is embarrassing - Olivia Rodrigo
+    audioClip: {fileID: 8300000, guid: cea3038a077efaf4ebd6ff6b215353a6, type: 3}
+  - songName: Runaway Baby - Bruno Mars
+    audioClip: {fileID: 8300000, guid: fab3f9f7022ab3e43932a3d3e6ac2981, type: 3}
+  - songName: Mr. Simple - Super Junior
+    audioClip: {fileID: 8300000, guid: 93a2ad16e2047214eac5b834a6ffbe24, type: 3}
+  - songName: "Blueprint Supreme - \u652C\u4F6CSKAI ISYOURGOD"
+    audioClip: {fileID: 8300000, guid: 459d43f9d2d9dfb4e8bf3ca757395f41, type: 3}
+  - songName: Crazy Frog - Axel F
+    audioClip: {fileID: 8300000, guid: 96e077f0a3e5c9a4489eee3f5aac0fa6, type: 3}
+  - songName: Blinding Lights - The Weeknd
+    audioClip: {fileID: 8300000, guid: 9da70e4abb7f0ea4ebff5d1d8306927f, type: 3}
+  - songName: "NO BATID\xC3O -  ZXKAI and slxughter"
+    audioClip: {fileID: 8300000, guid: c2c3f0ce893ff974b9be4de9c58982ad, type: 3}
+  - songName: Uptown Funk - Mark Ronson ft. Bruno Mars
+    audioClip: {fileID: 8300000, guid: 049ad0f03bf04ac41aa76c09823967b1, type: 3}
   customPerfectSound: {fileID: 8300000, guid: fbeb507444fa4ca409fb77ef1ea45b2d, type: 3}
   customGoodSound: {fileID: 8300000, guid: fbeb507444fa4ca409fb77ef1ea45b2d, type: 3}
   customMissSound: {fileID: 0}
@@ -828,6 +873,155 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1629463988
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1629463985}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9ec0687d3046d5c4fb363f60b11cc616, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SongLoader
+  allSongs:
+  - songName: From the start - Laufey
+    audioClip: {fileID: 8300000, guid: 112f153d8d4f58d418d2e69289ed30cc, type: 3}
+  - songName: 'Don''t Start Now - Dua Lipa  '
+    audioClip: {fileID: 8300000, guid: a6b8772505732334db0fcc233fef9301, type: 3}
+  - songName: Believer - Imagine Dragons
+    audioClip: {fileID: 8300000, guid: 1194b7938c944ea40b45d3c33a0e3615, type: 3}
+  - songName: Bloody Mary - Lady Gaga
+    audioClip: {fileID: 8300000, guid: e42be2708bdb234488165c3f746894fa, type: 3}
+  - songName: See you again - Tyler the Creator
+    audioClip: {fileID: 8300000, guid: dad1da7f69fe618469655ad2b410e8e8, type: 3}
+  - songName: Cant stop the feeling - Justin Timberlake
+    audioClip: {fileID: 8300000, guid: 8cc6c872456134c4b96411f3ee907ea2, type: 3}
+  - songName: Twilight Zone - Ariana Grande
+    audioClip: {fileID: 8300000, guid: f59e7352384440548acbc4bab6cee622, type: 3}
+  - songName: Pyramid - Charice
+    audioClip: {fileID: 8300000, guid: ca8657542bcbea74885543df0750f92f, type: 3}
+  - songName: Uptown Funk - Mark Ronson ft. Bruno Mars
+    audioClip: {fileID: 8300000, guid: 049ad0f03bf04ac41aa76c09823967b1, type: 3}
+  - songName: Bad Guy - Billie Eilish
+    audioClip: {fileID: 8300000, guid: de9e860617519ba44b074acb4408c797, type: 3}
+  - songName: ' Overpass Graffiti - Ed Sheeran'
+    audioClip: {fileID: 8300000, guid: 470bda02443f3ad4ab2005a029f973be, type: 3}
+  - songName: Beggin' - Maneskin
+    audioClip: {fileID: 8300000, guid: a5c93863c5a5cb34fbec7ca8611371d9, type: 3}
+  - songName: Love is embarrassing - Olivia Rodrigo
+    audioClip: {fileID: 8300000, guid: cea3038a077efaf4ebd6ff6b215353a6, type: 3}
+  - songName: Runaway Baby - Bruno Mars
+    audioClip: {fileID: 8300000, guid: fab3f9f7022ab3e43932a3d3e6ac2981, type: 3}
+  - songName: 'Mr. Simple - Super Junior '
+    audioClip: {fileID: 8300000, guid: 93a2ad16e2047214eac5b834a6ffbe24, type: 3}
+  - songName: "Blueprint Supreme - \u652C\u4F6CSKAI ISYOURGOD"
+    audioClip: {fileID: 8300000, guid: 459d43f9d2d9dfb4e8bf3ca757395f41, type: 3}
+  - songName: Crazy Frog - Axel F
+    audioClip: {fileID: 8300000, guid: 96e077f0a3e5c9a4489eee3f5aac0fa6, type: 3}
+  - songName: Blinding Lights - The Weeknd
+    audioClip: {fileID: 8300000, guid: 9da70e4abb7f0ea4ebff5d1d8306927f, type: 3}
+  - songName: "NO BATID\xC3O -  ZXKAI and slxughter"
+    audioClip: {fileID: 8300000, guid: c2c3f0ce893ff974b9be4de9c58982ad, type: 3}
+  audioSource: {fileID: 0}
+--- !u!82 &1629463989
+AudioSource:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1629463985}
+  m_Enabled: 1
+  serializedVersion: 4
+  OutputAudioMixerGroup: {fileID: 0}
+  m_audioClip: {fileID: 0}
+  m_Resource: {fileID: 0}
+  m_PlayOnAwake: 0
+  m_Volume: 1
+  m_Pitch: 1
+  Loop: 0
+  Mute: 0
+  Spatialize: 0
+  SpatializePostEffects: 0
+  Priority: 128
+  DopplerLevel: 1
+  MinDistance: 1
+  MaxDistance: 500
+  Pan2D: 0
+  rolloffMode: 0
+  BypassEffects: 0
+  BypassListenerEffects: 0
+  BypassReverbZones: 0
+  rolloffCustomCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    - serializedVersion: 3
+      time: 1
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  panLevelCustomCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  spreadCustomCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  reverbZoneMixCustomCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
 --- !u!1 &1719906755
 GameObject:
   m_ObjectHideFlags: 0
@@ -1419,6 +1613,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PlayerController
   hitZoneDistance: 1.2
   perfectZone: 0.5
+  hitSound: {fileID: 0}
   keyProfiles: []
 --- !u!4 &2120558013
 Transform:

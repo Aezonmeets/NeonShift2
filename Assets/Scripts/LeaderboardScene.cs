@@ -6,35 +6,31 @@ using System.Collections.Generic;
 
 public class LeaderboardScene : MonoBehaviour
 {
-    // ── Palette (Matched exactly to target screenshot) ──────
+    // ── Palette ──────
     static readonly Color DARK_BG = new Color(0.04f, 0.04f, 0.08f, 1f);
 
-    // Cyan Theme (Headers, 2nd Place, Active Tabs)
-    static readonly Color CYAN_TEXT = new Color(0f, 0.85f, 1f, 1f);
-    static readonly Color CYAN_BORDER = new Color(0f, 0.6f, 0.7f, 1f);
-    static readonly Color CYAN_BG_TINT = new Color(0f, 0.4f, 0.5f, 0.15f);
-
+    static readonly Color MAGENTA = new Color(1f, 0.15f, 0.75f, 1f);
+    static readonly Color CYAN = new Color(0f, 0.92f, 1f, 1f);
+    
     // Gold Theme (1st Place)
     static readonly Color GOLD_TEXT = new Color(1f, 0.85f, 0f, 1f);
     static readonly Color GOLD_BORDER = new Color(0.8f, 0.65f, 0f, 1f);
     static readonly Color GOLD_BG_TINT = new Color(0.8f, 0.6f, 0f, 0.15f);
 
-    // Dim/Empty Theme (3rd+ Place, Inactive Tabs)
+    static readonly Color ROW_BG = new Color(0.08f, 0.08f, 0.12f, 0.8f);
+    static readonly Color BORDER_DIM = new Color(1f, 1f, 1f, 0.25f);
     static readonly Color DIM_TEXT = new Color(0.4f, 0.45f, 0.55f, 1f);
-    static readonly Color DIM_BORDER = new Color(0.15f, 0.15f, 0.25f, 1f);
-    static readonly Color DIM_BG_TINT = new Color(0.08f, 0.08f, 0.12f, 0.8f);
 
     static readonly string[] TabLabels = { "ALL", "EASY", "MEDIUM", "HARD", "ENDLESS" };
     static readonly string[] TabFilters = { null, "Easy", "Medium", "Hard", "Endless" };
 
-    // Layout matched to the screenshot
-    static readonly (string h, float x, float w, TextAlignmentOptions a)[] Cols = {
+   static readonly (string h, float x, float w, TextAlignmentOptions a)[] Cols = {
         ("#",      -420f,  60f,  TextAlignmentOptions.Left),
         ("NAME",   -300f, 200f,  TextAlignmentOptions.Left),
-        ("SCORE",    20f, 160f,  TextAlignmentOptions.Center),
-        ("ACC",     200f, 100f,  TextAlignmentOptions.Center),
-        ("MODE",    320f, 120f,  TextAlignmentOptions.Center),
-        ("DATE",    440f, 160f,  TextAlignmentOptions.Right),
+        ("SCORE",     0f, 140f,  TextAlignmentOptions.Center), // Shifted left
+        ("ACC",     140f,  90f,  TextAlignmentOptions.Center), // Shifted left
+        ("MODE",    250f, 110f,  TextAlignmentOptions.Center), // Shifted left
+        ("DATE",    380f, 150f,  TextAlignmentOptions.Right),  // Safely tucked inside the right edge
     };
 
     const float ROW_H = 50f;
@@ -51,7 +47,10 @@ public class LeaderboardScene : MonoBehaviour
     TextMeshProUGUI pageLabel;
     Button prevBtn, nextBtn;
     Button[] tabButtons;
+    Image[] tabGlows; // Tracks the glow behind the tabs
+    
     Sprite roundedSprite;
+    Sprite glowSprite; // NEW: The procedural soft glow texture
     bool clearPending = false;
 
     void Start()
@@ -66,12 +65,57 @@ public class LeaderboardScene : MonoBehaviour
             es.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
         }
 
-        // Grab Unity's built-in rounded rectangle sprite for that clean UI look
-        roundedSprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
+        // --- Generate solid rounded sprite ---
+        Texture2D tex = new Texture2D(8, 8);
+        for (int y = 0; y < 8; y++)
+            for (int x = 0; x < 8; x++) tex.SetPixel(x, y, Color.white);
+        tex.Apply();
+        roundedSprite = Sprite.Create(tex, new Rect(0, 0, 8, 8), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(2, 2, 2, 2));
+
+        // --- NEW: Generate soft radial glow sprite ---
+        glowSprite = CreateGlowSprite();
 
         var _ = LeaderboardManager.Instance;
         BuildUI();
         SelectTab(0);
+    }
+
+    // ── PROCEDURAL GLOW GENERATOR ──
+    Sprite CreateGlowSprite()
+    {
+        int size = 128;
+        Texture2D tex = new Texture2D(size, size);
+        Vector2 center = new Vector2(size / 2f, size / 2f);
+        
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dist = Vector2.Distance(new Vector2(x, y), center) / (size / 2f);
+                float alpha = Mathf.Clamp01(1f - dist);
+                alpha = Mathf.Pow(alpha, 1.5f); // Soften the edge falloff
+                tex.SetPixel(x, y, new Color(1, 1, 1, alpha));
+            }
+        }
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(size/2.1f, size/2.1f, size/2.1f, size/2.1f));
+    }
+
+    // ── HELPER TO ADD GLOW TO ANY UI ELEMENT ──
+    Image AddGlow(GameObject parent, Color color, Vector2 expansion)
+    {
+        var glowGo = Rect("Glow", parent);
+        glowGo.transform.SetAsFirstSibling(); // Push it behind the main graphic
+        var rt = glowGo.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        rt.offsetMin = -expansion; rt.offsetMax = expansion; // Expand outward
+        
+        var img = glowGo.AddComponent<Image>();
+        img.sprite = glowSprite;
+        img.type = Image.Type.Sliced;
+        img.color = color;
+        img.raycastTarget = false;
+        return img;
     }
 
     void BuildUI()
@@ -92,27 +136,35 @@ public class LeaderboardScene : MonoBehaviour
         var bg = Rect("BG", canvas); Fill(bg);
         bg.AddComponent<Image>().color = DARK_BG;
 
+        // Massive ambient background glow
+        AddGlow(bg.gameObject, new Color(CYAN.r, CYAN.g, CYAN.b, 0.1f), new Vector2(-200, -100));
+
         // ── TOP CORNER BUTTONS ──
         var header = Rect("Header", canvas);
         AnchorStretchTop(header, 120f);
 
-        var backBtn = OutlineBtn("BACK", CYAN_BORDER, CYAN_TEXT, header, new Vector2(120, -60), new Vector2(80, 36), GoBack);
+        var backBtn = OutlineBtn("BACK", BORDER_DIM, CYAN, header, new Vector2(120, -60), new Vector2(80, 36), GoBack);
         var backRT = backBtn.GetComponent<RectTransform>();
         backRT.anchorMin = backRT.anchorMax = new Vector2(0, 1);
+        AddGlow(backBtn.gameObject, new Color(CYAN.r, CYAN.g, CYAN.b, 0.2f), new Vector2(10, 10));
 
-        var clrBtn = OutlineBtn("", DIM_BORDER, DIM_TEXT, header, new Vector2(-120, -60), new Vector2(80, 36), TryClear);
+        var clrBtn = OutlineBtn("", BORDER_DIM, DIM_TEXT, header, new Vector2(-120, -60), new Vector2(80, 36), TryClear);
         var clrRT = clrBtn.GetComponent<RectTransform>();
         clrRT.anchorMin = clrRT.anchorMax = new Vector2(1, 1);
 
-        // ── TITLE ──
+        // ── TITLE (With Massive Magenta Glow) ──
         var titleContainer = Rect("TitleContainer", header);
         SetAP(titleContainer, new Vector2(0, -60), new Vector2(.5f, 1f), new Vector2(600, 60));
 
-        var mainTitle = TMP("Title", titleContainer, "LEADERBOARD", 54, Color.white, FontStyles.Bold, TextAlignmentOptions.Center);
+        var mainTitle = TMP("Title", titleContainer, "LEADERBOARD", 54, MAGENTA, FontStyles.Bold, TextAlignmentOptions.Center);
         SetAP(mainTitle, Vector2.zero, new Vector2(.5f, .5f), new Vector2(600, 60));
-        var glow = mainTitle.AddComponent<Shadow>();
-        glow.effectColor = new Color(1f, 1f, 1f, 0.5f);
-        glow.effectDistance = new Vector2(0, 0);
+        
+        var shadow = mainTitle.AddComponent<Shadow>();
+        shadow.effectColor = new Color(CYAN.r, CYAN.g, CYAN.b, 0.9f);
+        shadow.effectDistance = new Vector2(3, -3);
+
+        // Add the intense backlight glow
+        AddGlow(mainTitle.gameObject, new Color(MAGENTA.r, MAGENTA.g, MAGENTA.b, 0.45f), new Vector2(80, 40));
 
         // ── TABS ──
         var tabBar = Rect("TabBar", canvas);
@@ -121,6 +173,7 @@ public class LeaderboardScene : MonoBehaviour
         tbRT.offsetMin = new Vector2(0, -120 - 40); tbRT.offsetMax = new Vector2(0, -120);
 
         tabButtons = new Button[TabLabels.Length];
+        tabGlows = new Image[TabLabels.Length];
         float tabW = 120f, gap = 10f;
         float totalW = TabLabels.Length * tabW + (TabLabels.Length - 1) * gap;
         float sx = -totalW / 2f + tabW / 2f;
@@ -141,6 +194,9 @@ public class LeaderboardScene : MonoBehaviour
             var outline = tab.AddComponent<Outline>();
             outline.effectDistance = new Vector2(1, -1);
 
+            // Pre-create the glow behind each tab
+            tabGlows[i] = AddGlow(tab, Color.clear, new Vector2(15, 15));
+
             var lbl = TMP("L", tab, TabLabels[i], 12, Color.white, FontStyles.Bold, TextAlignmentOptions.Center);
             Fill(lbl);
 
@@ -155,7 +211,7 @@ public class LeaderboardScene : MonoBehaviour
         chRT.anchorMin = new Vector2(.5f, 1f); chRT.anchorMax = new Vector2(.5f, 1f);
         chRT.anchoredPosition = new Vector2(0, -(120f + 60f + 20f));
         chRT.sizeDelta = new Vector2(ROW_W, 30f);
-        PlaceRow(colHeader, null, CYAN_TEXT, 11, FontStyles.Bold);
+        PlaceRow(colHeader, null, MAGENTA, 14, FontStyles.Bold);
 
         // ── ROW CONTAINER ──
         rowContainer = Rect("Rows", canvas);
@@ -164,6 +220,9 @@ public class LeaderboardScene : MonoBehaviour
         rcRT.sizeDelta = new Vector2(ROW_W, 0f);
         rcRT.offsetMin = new Vector2(-ROW_W / 2f, 100f); rcRT.offsetMax = new Vector2(ROW_W / 2f, -220f);
 
+        // Add a soft backdrop glow behind the entire list
+        AddGlow(rowContainer, new Color(CYAN.r, CYAN.g, CYAN.b, 0.05f), new Vector2(40, 40));
+
         // ── PAGINATION ──
         var pageBar = Rect("PageBar", canvas);
         var pbRT = pageBar.GetComponent<RectTransform>();
@@ -171,10 +230,10 @@ public class LeaderboardScene : MonoBehaviour
         pbRT.anchoredPosition = new Vector2(0, 50f);
         pbRT.sizeDelta = new Vector2(300f, 40f);
 
-        prevBtn = OutlineBtn("<", DIM_BORDER, CYAN_TEXT, pageBar, new Vector2(-110, 0), new Vector2(36, 36), () => { currentPage--; RefreshRows(); });
-        nextBtn = OutlineBtn(">", DIM_BORDER, CYAN_TEXT, pageBar, new Vector2(110, 0), new Vector2(36, 36), () => { currentPage++; RefreshRows(); });
+        prevBtn = OutlineBtn("<", BORDER_DIM, CYAN, pageBar, new Vector2(-110, 0), new Vector2(36, 36), () => { currentPage--; RefreshRows(); });
+        nextBtn = OutlineBtn(">", BORDER_DIM, CYAN, pageBar, new Vector2(110, 0), new Vector2(36, 36), () => { currentPage++; RefreshRows(); });
 
-        var pgLbl = TMP("PgLbl", pageBar, "PAGE 01 / 01", 12, DIM_TEXT, FontStyles.Bold, TextAlignmentOptions.Center);
+        var pgLbl = TMP("PgLbl", pageBar, "PAGE 01 / 01", 12, CYAN, FontStyles.Bold, TextAlignmentOptions.Center);
         SetAP(pgLbl, new Vector2(0, 0), new Vector2(.5f, .5f), new Vector2(150, 30));
         pageLabel = pgLbl.GetComponent<TextMeshProUGUI>();
     }
@@ -192,15 +251,21 @@ public class LeaderboardScene : MonoBehaviour
 
             if (i == currentTab)
             {
-                img.color = CYAN_BG_TINT;
-                outline.effectColor = CYAN_BORDER;
+                img.color = new Color(CYAN.r, CYAN.g, CYAN.b, 0.15f);
+                outline.effectColor = CYAN;
                 txt.color = Color.white;
+                
+                // Light up the glow behind the active tab!
+                tabGlows[i].color = new Color(CYAN.r, CYAN.g, CYAN.b, 0.4f);
             }
             else
             {
-                img.color = DIM_BG_TINT;
-                outline.effectColor = DIM_BORDER;
+                img.color = ROW_BG;
+                outline.effectColor = BORDER_DIM;
                 txt.color = DIM_TEXT;
+                
+                // Turn off glow for inactive tabs
+                tabGlows[i].color = Color.clear;
             }
         }
 
@@ -218,7 +283,6 @@ public class LeaderboardScene : MonoBehaviour
         currentPage = Mathf.Clamp(currentPage, 0, pages - 1);
         int start = currentPage * PAGE_SIZE;
 
-        // Always display at least 4 rows to match the screenshot aesthetic (even if empty)
         int rowsToDisplay = Mathf.Max(4, Mathf.Min(PAGE_SIZE, total - start));
 
         for (int i = 0; i < rowsToDisplay; i++)
@@ -238,27 +302,28 @@ public class LeaderboardScene : MonoBehaviour
             var img = row.AddComponent<Image>();
             img.sprite = roundedSprite;
             img.type = Image.Type.Sliced;
-
+            img.color = ROW_BG; 
+            
             var outline = row.AddComponent<Outline>();
             outline.effectDistance = new Vector2(1, -1);
+            outline.effectColor = BORDER_DIM;
 
-            Color textColor = DIM_TEXT;
-            FontStyles fs = FontStyles.Normal;
+            Color textColor = hasData ? CYAN : DIM_TEXT;
+            FontStyles fs = hasData ? FontStyles.Bold : FontStyles.Normal;
 
-            if (rank == 1)
+            // --- RANK GLOWS ---
+            if (hasData)
             {
-                img.color = GOLD_BG_TINT; outline.effectColor = GOLD_BORDER;
-                textColor = GOLD_TEXT; fs = FontStyles.Bold;
-            }
-            else if (rank == 2)
-            {
-                img.color = CYAN_BG_TINT; outline.effectColor = CYAN_BORDER;
-                textColor = CYAN_TEXT; fs = FontStyles.Bold;
-            }
-            else
-            {
-                img.color = DIM_BG_TINT; outline.effectColor = DIM_BORDER;
-                textColor = DIM_TEXT;
+                if (rank == 1) 
+                {
+                    outline.effectColor = GOLD_BORDER;
+                    AddGlow(row, new Color(GOLD_BORDER.r, GOLD_BORDER.g, GOLD_BORDER.b, 0.4f), new Vector2(15, 15));
+                }
+                else if (rank == 2) 
+                {
+                    outline.effectColor = CYAN;
+                    AddGlow(row, new Color(CYAN.r, CYAN.g, CYAN.b, 0.25f), new Vector2(15, 15));
+                }
             }
 
             string[] vals;
@@ -294,15 +359,11 @@ public class LeaderboardScene : MonoBehaviour
         for (int i = 0; i < Cols.Length; i++)
         {
             string txt = vals != null && i < vals.Length ? vals[i] : Cols[i].h;
-            Color col = defaultCol;
-
-            // Header text is always cyan
-            if (vals == null) col = CYAN_TEXT;
-
-            // In the target image, columns like ACC, MODE, DATE default to dim or white-ish unless 1st/2nd place
-            else if (rank > 2) col = DIM_TEXT;
-            else if (i > 1 && rank == 1) col = GOLD_TEXT;
-            else if (i > 1 && rank == 2) col = Color.white; // 2nd place data text is white in screenshot
+            
+            Color col = (vals == null) ? MAGENTA : defaultCol;
+            
+            // Highlight the #1 Player text in Gold!
+            if (rank == 1 && vals != null) col = GOLD_TEXT; 
 
             var go = TMP("C" + i, parent, txt, sz, col, fs, Cols[i].a);
             SetAP(go, new Vector2(Cols[i].x, 0), new Vector2(.5f, .5f), new Vector2(Cols[i].w, ROW_H));
@@ -319,7 +380,7 @@ public class LeaderboardScene : MonoBehaviour
         var img = go.AddComponent<Image>();
         img.sprite = roundedSprite;
         img.type = Image.Type.Sliced;
-        img.color = DIM_BG_TINT;
+        img.color = ROW_BG;
 
         var outline = go.AddComponent<Outline>();
         outline.effectColor = outlineCol;

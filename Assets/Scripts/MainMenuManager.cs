@@ -3,7 +3,6 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
-using static Unity.Burst.Intrinsics.Arm;
 
 public class MainMenuManager : MonoBehaviour
 {
@@ -19,6 +18,15 @@ public class MainMenuManager : MonoBehaviour
     };
 
     static readonly string[] ModeLabels = { "EASY", "MEDIUM", "HARD", "ENDLESS" };
+
+    // --- NEW: The exact song lists you provided! ---
+    static readonly string[][] ModeSongs = new string[][] {
+        new string[] { "From the start - Laufey", "See you again - Tyler the Creator", "Cant stop the feeling - Justin Timberlake", "Bloody Mary - Lady Gaga", "Believer - Imagine Dragons", "Don't Start Now - Dua Lipa" }, // Easy
+        new string[] { "Twilight Zone - Ariana Grande", "Pyramid - Charice", "Uptown Funk - Mark Ronson ft. Bruno Mars", "Shake It Off - Taylor Swift" }, // Medium
+        new string[] { "Bad Guy - Billie Eilish", "Overpass Graffiti - Ed Sheeran", "Beggin' - Maneskin", "Love is embarrassing - Olivia Rodrigo", "Runaway Baby - Bruno Mars", "Blueprint Supreme - 攬佬SKAI ISYOURGOD", "Mr. Simple - Super Junior" }, // Hard
+        new string[] { "Blinding Lights - The Weeknd", "NO BATIDÃO -  ZXKAI and slxughter", "Crazy Frog - Axel F" } // Endless
+    };
+    // -----------------------------------------------
 
     [Header("Audio Settings")]
     public AudioClip menuMusic;
@@ -36,6 +44,13 @@ public class MainMenuManager : MonoBehaviour
 
     AudioSource music;
     AudioSource sfx;
+
+    GameObject settingsPanel;
+    GameObject nameEntryPanel;
+    GameObject songSelectionPanel;
+    GameObject songListContainer; // Holds the dynamic song buttons
+    TMP_InputField nameInput;
+    int pendingModeIndex = 0;
 
     void Start()
     {
@@ -64,6 +79,13 @@ public class MainMenuManager : MonoBehaviour
 
     void Build()
     {
+        if (FindObjectOfType<EventSystem>() == null)
+        {
+            var eventSystem = new GameObject("EventSystem");
+            eventSystem.AddComponent<EventSystem>();
+            eventSystem.AddComponent<StandaloneInputModule>();
+        }
+
         var cgo = new GameObject("Canvas");
         var cv = cgo.AddComponent<Canvas>();
         cv.renderMode = RenderMode.ScreenSpaceCamera;
@@ -75,8 +97,6 @@ public class MainMenuManager : MonoBehaviour
         sc.referenceResolution = new Vector2(1280, 720);
         sc.matchWidthOrHeight = 0.5f;
         cgo.AddComponent<GraphicRaycaster>();
-
-        GameObject settingsPanel = null;
 
         // ── DARK BACKGROUND ──
         var bg = new GameObject("BG"); bg.transform.SetParent(cgo.transform, false);
@@ -113,13 +133,15 @@ public class MainMenuManager : MonoBehaviour
 
         var topBtn = iconBtn.AddComponent<Button>();
         AddButtonSounds(topBtn);
-        iconBtn.AddComponent<NeonButtonJuice>(); // Smooth hover!
+        iconBtn.AddComponent<NeonButtonJuice>();
 
         topBtn.onClick.AddListener(() => {
             if (settingsPanel != null) settingsPanel.GetComponent<NeonPanelAnim>().Toggle();
+            if (nameEntryPanel != null) nameEntryPanel.GetComponent<NeonPanelAnim>().Hide(); 
+            if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Hide(); 
         });
 
-        // ── TITLE (Fixed Order: NEONSHIFT) ──
+        // ── TITLE ──
         float titleY = 200f;
 
         var titleParent = new GameObject("TitleGroup");
@@ -129,11 +151,9 @@ public class MainMenuManager : MonoBehaviour
         tpRt.anchoredPosition = new Vector2(0, titleY);
         titleParent.AddComponent<NeonBreathingAnim>();
 
-        // NEON on the left (Cyan)
         var t1 = T(titleParent, "SHIFT", 95, new Vector2(-160, 0), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Right);
         t1.color = CYAN; t1.fontStyle = FontStyles.Bold;
 
-        // SHIFT on the right (Magenta)
         var t2 = T(titleParent, "NEON", 95, new Vector2(150, 0), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Left);
         t2.color = MAGENTA; t2.fontStyle = FontStyles.Bold;
 
@@ -141,28 +161,230 @@ public class MainMenuManager : MonoBehaviour
         sub.color = CYAN; sub.fontStyle = FontStyles.Bold;
         sub.characterSpacing = 5f;
 
-        // ── BUTTONS (Adjusted layout gaps so Quit fits perfectly) ──
+        // ── BUTTONS ──
         Sprite[] modeSprites = { easyIcon, mediumIcon, hardIcon, endlessIcon };
-        float startY = 40f, gap = -55f; // Tighter layout
+        float startY = 40f, gap = -55f;
 
         for (int i = 0; i < 4; i++)
         {
             int mi = i;
             ModeButton(cgo, ModeLabels[i], modeSprites[i], ModeBorderColors[i],
-                new Vector2(0, startY + gap * i), () => { PlayerPrefs.SetInt("SelectedMode", mi); SceneManager.LoadScene("GameScene"); });
+                new Vector2(0, startY + gap * i), () => { 
+                    pendingModeIndex = mi; 
+                    
+                    // --- CHANGED: Open Song Selection instead of Name Entry directly ---
+                    PopulateSongList(mi);
+                    if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Show();
+                    if (settingsPanel != null) settingsPanel.GetComponent<NeonPanelAnim>().Hide();
+                    if (nameEntryPanel != null) nameEntryPanel.GetComponent<NeonPanelAnim>().Hide();
+                });
         }
 
-        // Leaderboard and Quit are spaced slightly lower but still fully on-screen
         ModeButton(cgo, "LEADERBOARD", null, new Color(0.4f, 0.7f, 1f),
             new Vector2(0, startY + gap * 4 - 10), () => LeaderboardManager.OpenLeaderboardScene("MainMenu"));
 
         ModeButton(cgo, "QUIT GAME", quitIcon, new Color(0.4f, 0.45f, 0.55f),
             new Vector2(0, startY + gap * 5 - 10), () => Application.Quit());
 
-        // ── SETTINGS PANEL ──
+        // ── PANELS ──
         settingsPanel = CreateSettingsPanel(cgo);
+        nameEntryPanel = CreateNameEntryPanel(cgo);
+        songSelectionPanel = CreateSongSelectionPanel(cgo);
     }
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // ── NEW: SONG SELECTION PANEL
+    // ──────────────────────────────────────────────────────────────────────────
+    GameObject CreateSongSelectionPanel(GameObject canvasGo)
+    {
+        var panel = new GameObject("SongSelectionPanel");
+        panel.transform.SetParent(canvasGo.transform, false);
+        var prt = panel.AddComponent<RectTransform>();
+        prt.anchorMin = prt.anchorMax = A(0.5f, 0.5f);
+        prt.anchoredPosition = Vector2.zero;
+        prt.sizeDelta = new Vector2(550, 600); // Made it taller and wider for long song titles!
+
+        var img = panel.AddComponent<Image>();
+        img.color = new Color(0.05f, 0.07f, 0.11f, 0.98f);
+        var outline = panel.AddComponent<Outline>();
+        outline.effectColor = CYAN;
+        outline.effectDistance = new Vector2(2, -2);
+
+        T(panel, "SELECT TRACK", 35, new Vector2(0, 240), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center).color = MAGENTA;
+
+        // Container that will hold the dynamically generated song buttons
+        songListContainer = new GameObject("Container");
+        songListContainer.transform.SetParent(panel.transform, false);
+        var crt = songListContainer.AddComponent<RectTransform>();
+        crt.anchorMin = crt.anchorMax = A(0.5f, 0.5f);
+        crt.anchoredPosition = new Vector2(0, 0);
+
+        ModeButton(panel, "CANCEL", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -250), () => {
+            panel.GetComponent<NeonPanelAnim>().Hide();
+        });
+
+        panel.AddComponent<NeonPanelAnim>();
+        return panel;
+    }
+
+    void PopulateSongList(int modeIndex)
+    {
+        // 1. Destroy any old song buttons from the previous mode selected
+        foreach (Transform child in songListContainer.transform) {
+            Destroy(child.gameObject);
+        }
+
+        // 2. Get the correct list of songs for this specific mode
+        string[] songs = ModeSongs[modeIndex];
+        
+        // Mathematically center the buttons vertically based on how many there are
+        float startY = (songs.Length - 1) * 55f / 2f; 
+
+        // 3. Generate a button for every song in the list
+        for (int i = 0; i < songs.Length; i++)
+        {
+            string songName = songs[i];
+            float yPos = startY - (i * 55f);
+            
+            SongButton(songListContainer, songName, ModeBorderColors[modeIndex], new Vector2(0, yPos), () => {
+                
+                // --- SAVE THE CHOSEN SONG ---
+                PlayerPrefs.SetString("SelectedSong", songName);
+                if (sfx != null && clickSound != null) sfx.PlayOneShot(clickSound);
+                
+                // Hide song selection, show Name Entry
+                songSelectionPanel.GetComponent<NeonPanelAnim>().Hide();
+                if (nameEntryPanel != null) nameEntryPanel.GetComponent<NeonPanelAnim>().Show();
+            });
+        }
+    }
+
+    // A slightly modified ModeButton specifically designed to fit long song titles nicely
+    void SongButton(GameObject p, string lbl, Color col, Vector2 pos, UnityEngine.Events.UnityAction cb)
+    {
+        var go = new GameObject("SongBtn_" + lbl);
+        go.transform.SetParent(p.transform, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = A(.5f, .5f);
+        rt.anchoredPosition = pos;
+        rt.sizeDelta = new Vector2(480, 45); // Made wider
+
+        var img = go.AddComponent<Image>();
+        img.color = new Color(0.08f, 0.10f, 0.13f, 0.95f);
+        var outline = go.AddComponent<Outline>();
+        outline.effectColor = new Color(col.r, col.g, col.b, 0.25f);
+        outline.effectDistance = new Vector2(1, -1);
+
+        var bar = new GameObject("Bar"); bar.transform.SetParent(go.transform, false);
+        var brt = bar.AddComponent<RectTransform>();
+        brt.anchorMin = new Vector2(0, 0f); brt.anchorMax = new Vector2(0, 1f);
+        brt.offsetMin = new Vector2(0, 1); brt.offsetMax = new Vector2(5, -1);
+        bar.AddComponent<Image>().color = new Color(col.r, col.g, col.b, 1f);
+
+        var tgo = new GameObject("Label"); tgo.transform.SetParent(go.transform, false);
+        var trt = tgo.AddComponent<RectTransform>();
+        trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
+        trt.offsetMin = new Vector2(20, 0); trt.offsetMax = new Vector2(-10, 0); // extra padding
+        var tmp = tgo.AddComponent<TextMeshProUGUI>();
+        tmp.text = lbl; tmp.fontSize = 16; tmp.fontStyle = FontStyles.Bold; // slightly smaller font to fit long titles
+        tmp.alignment = TextAlignmentOptions.Left;
+        tmp.color = Color.white;
+        tmp.overflowMode = TextOverflowModes.Ellipsis; // if title is still too long, adds "..."
+        tmp.raycastTarget = false; 
+
+        var btn = go.AddComponent<Button>(); btn.targetGraphic = img;
+        btn.onClick.AddListener(cb);
+
+        var cb2 = btn.colors;
+        cb2.fadeDuration = 0.1f;
+        cb2.highlightedColor = new Color(col.r * 0.2f, col.g * 0.2f, col.b * 0.2f, 0.95f);
+        cb2.pressedColor = new Color(col.r * 0.3f, col.g * 0.3f, col.b * 0.3f, 0.95f);
+        btn.colors = cb2;
+
+        AddButtonSounds(btn);
+        go.AddComponent<NeonButtonJuice>();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // ── NAME ENTRY PANEL
+    // ──────────────────────────────────────────────────────────────────────────
+    GameObject CreateNameEntryPanel(GameObject canvasGo)
+    {
+        var panel = new GameObject("NameEntryPanel");
+        panel.transform.SetParent(canvasGo.transform, false);
+        var prt = panel.AddComponent<RectTransform>();
+        prt.anchorMin = prt.anchorMax = A(0.5f, 0.5f);
+        prt.anchoredPosition = Vector2.zero;
+        prt.sizeDelta = new Vector2(450, 300); 
+
+        var img = panel.AddComponent<Image>();
+        img.color = new Color(0.05f, 0.07f, 0.11f, 0.98f);
+        var outline = panel.AddComponent<Outline>();
+        outline.effectColor = MAGENTA; 
+        outline.effectDistance = new Vector2(2, -2);
+
+        T(panel, "ENTER CALLSIGN", 35, new Vector2(0, 90), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center).color = CYAN;
+
+        var inputGo = new GameObject("InputField");
+        inputGo.transform.SetParent(panel.transform, false);
+        var irt = inputGo.AddComponent<RectTransform>();
+        irt.anchorMin = irt.anchorMax = A(0.5f, 0.5f);
+        irt.anchoredPosition = new Vector2(0, 10);
+        irt.sizeDelta = new Vector2(350, 50);
+
+        var inputImg = inputGo.AddComponent<Image>();
+        inputImg.color = new Color(0.02f, 0.03f, 0.05f, 1f);
+        var inputOutline = inputGo.AddComponent<Outline>();
+        inputOutline.effectColor = new Color(1f, 1f, 1f, 0.3f);
+
+        var textGo = new GameObject("Text");
+        textGo.transform.SetParent(inputGo.transform, false);
+        var trt = textGo.AddComponent<RectTransform>();
+        trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
+        trt.offsetMin = new Vector2(15, 0); trt.offsetMax = new Vector2(-15, 0);
+        
+        var tmp = textGo.AddComponent<TextMeshProUGUI>();
+        tmp.fontSize = 24;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color = CYAN;
+
+        nameInput = inputGo.AddComponent<TMP_InputField>();
+        nameInput.targetGraphic = inputImg;
+        nameInput.textComponent = tmp;
+        nameInput.characterLimit = 12; 
+        
+        nameInput.customCaretColor = true;
+        nameInput.caretColor = CYAN;
+        nameInput.selectionColor = new Color(CYAN.r, CYAN.g, CYAN.b, 0.4f);
+
+        string[] prefixes = { "Neon", "Cyber", "Synth", "Byte", "Pixel", "Zero" };
+        string[] suffixes = { "Rider", "Ninja", "Runner", "Ghost", "Punk", "Shift" };
+        string generatedName = prefixes[Random.Range(0, prefixes.Length)] + suffixes[Random.Range(0, suffixes.Length)] + Random.Range(10, 99);
+        
+        nameInput.text = PlayerPrefs.GetString("PlayerName", generatedName);
+
+        ModeButton(panel, "INITIALIZE", null, new Color(0.1f, 1f, 0.4f), new Vector2(0, -65), () => {
+            string finalName = string.IsNullOrEmpty(nameInput.text) ? "UnknownPlayer" : nameInput.text;
+            PlayerPrefs.SetString("PlayerName", finalName);
+            PlayerPrefs.SetInt("SelectedMode", pendingModeIndex);
+            
+            if (sfx != null && clickSound != null) sfx.PlayOneShot(clickSound);
+            SceneManager.LoadScene("GameScene");
+        });
+
+        ModeButton(panel, "BACK", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -120), () => {
+            // Go back to the song selection panel instead of closing entirely!
+            panel.GetComponent<NeonPanelAnim>().Hide();
+            if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Show();
+        });
+
+        panel.AddComponent<NeonPanelAnim>();
+        return panel;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // ── SETTINGS PANEL 
+    // ──────────────────────────────────────────────────────────────────────────
     GameObject CreateSettingsPanel(GameObject canvasGo)
     {
         var panel = new GameObject("SettingsPanel");
@@ -194,12 +416,9 @@ public class MainMenuManager : MonoBehaviour
 
         ModeButton(panel, "CLOSE MENU", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -140), () => {
             panel.GetComponent<NeonPanelAnim>().Hide();
-            if (sfx != null && clickSound != null) sfx.PlayOneShot(clickSound);
         });
 
-        // Add the new smooth fader component instead of using SetActive()
         panel.AddComponent<NeonPanelAnim>();
-
         return panel;
     }
 
@@ -247,7 +466,7 @@ public class MainMenuManager : MonoBehaviour
         var rt = go.AddComponent<RectTransform>();
         rt.anchorMin = rt.anchorMax = A(.5f, .5f);
         rt.anchoredPosition = pos;
-        rt.sizeDelta = new Vector2(350, 45); // Made slightly sleeker
+        rt.sizeDelta = new Vector2(350, 45);
 
         var img = go.AddComponent<Image>();
         img.color = new Color(0.08f, 0.10f, 0.13f, 0.95f);
@@ -270,6 +489,7 @@ public class MainMenuManager : MonoBehaviour
         tmp.alignment = TextAlignmentOptions.Left;
         tmp.characterSpacing = 3f;
         tmp.color = Color.white;
+        tmp.raycastTarget = false; 
 
         if (iconSprite != null)
         {
@@ -281,19 +501,20 @@ public class MainMenuManager : MonoBehaviour
             var actualImage = igo.AddComponent<Image>();
             actualImage.sprite = iconSprite;
             actualImage.color = col; actualImage.preserveAspect = true;
+            actualImage.raycastTarget = false; 
         }
 
         var btn = go.AddComponent<Button>(); btn.targetGraphic = img;
         btn.onClick.AddListener(cb);
 
         var cb2 = btn.colors;
-        cb2.fadeDuration = 0.1f; // Smoother color transitions
+        cb2.fadeDuration = 0.1f;
         cb2.highlightedColor = new Color(col.r * 0.2f, col.g * 0.2f, col.b * 0.2f, 0.95f);
         cb2.pressedColor = new Color(col.r * 0.3f, col.g * 0.3f, col.b * 0.3f, 0.95f);
         btn.colors = cb2;
 
         AddButtonSounds(btn);
-        go.AddComponent<NeonButtonJuice>(); // Attach the smooth scaling animation!
+        go.AddComponent<NeonButtonJuice>();
     }
 
     void AddButtonSounds(Button btn)
@@ -317,7 +538,9 @@ public class MainMenuManager : MonoBehaviour
         var rt = go.AddComponent<RectTransform>();
         rt.anchorMin = aMin; rt.anchorMax = aMax;
         rt.offsetMin = new Vector2(0, offY); rt.offsetMax = new Vector2(0, offY + height);
-        go.AddComponent<Image>().color = new Color(col.r, col.g, col.b, alpha);
+        var img = go.AddComponent<Image>();
+        img.color = new Color(col.r, col.g, col.b, alpha);
+        img.raycastTarget = false; 
     }
 
     TextMeshProUGUI T(GameObject p, string txt, int sz, Vector2 pos, Vector2 aMin, Vector2 aMax, TextAlignmentOptions al)
@@ -328,6 +551,7 @@ public class MainMenuManager : MonoBehaviour
         rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(900, 130);
         var t = go.AddComponent<TextMeshProUGUI>();
         t.text = txt; t.fontSize = sz; t.alignment = al; t.color = Color.white;
+        t.raycastTarget = false; 
         return t;
     }
 
@@ -335,7 +559,7 @@ public class MainMenuManager : MonoBehaviour
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// ── UI ANIMATION HELPERS (These handle all the smoothness automatically) ──
+// ── UI ANIMATION HELPERS 
 // ──────────────────────────────────────────────────────────────────────────
 
 public class NeonButtonJuice : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
@@ -388,6 +612,7 @@ public class NeonPanelAnim : MonoBehaviour
     }
 
     public void Toggle() => isShowing = !isShowing;
+    public void Show() => isShowing = true; 
     public void Hide() => isShowing = false;
 }
 

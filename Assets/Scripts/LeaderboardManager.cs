@@ -58,8 +58,9 @@ public class LeaderboardManager : MonoBehaviour
     // ── PUBLIC API ───────────────────────────────────────────────────────
     public void TrySubmit(string mode, int score, int maxCombo, float accuracy)
     {
-        string name = PlayerPrefs.GetString("PlayerName", "PLAYER").ToUpper();
-        if (name.Length > 8) name = name.Substring(0, 8);
+        // --- FIX: Grab EXACTLY what they typed, keep lowercase/uppercase, and allow 12 characters! ---
+        string name = PlayerPrefs.GetString("PlayerName", "PLAYER");
+        if (name.Length > 12) name = name.Substring(0, 12);
 
         entries.Add(new LeaderboardEntry
         {
@@ -144,6 +145,8 @@ public class LeaderboardManager : MonoBehaviour
         {
             var e = list[i]; float y = 25f - i * 26f;
             Color rowCol = i == 0 ? new Color(1f, .92f, .15f) : i == 1 ? new Color(.8f, .8f, .8f) : i == 2 ? new Color(.85f, .55f, .25f) : Color.white;
+            
+            // Padded strings dynamically so the score always lines up nicely even with longer names
             string line = $"{(i + 1).ToString().PadRight(4)}{e.name.PadRight(14)}{e.score.ToString("N0").PadRight(13)}{e.accuracy}";
             Lbl(parent, line, 14, new Vector2(0, y), rowCol);
         }

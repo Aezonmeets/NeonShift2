@@ -4,6 +4,14 @@ using TMPro;
 using System.Collections;
 using UnityEngine.SceneManagement;
 
+// --- WE MOVED THE SONG DATA DIRECTLY INTO THE GAME MANAGER ---
+[System.Serializable]
+public struct SongData
+{
+    public string songName;
+    public AudioClip audioClip;
+}
+
 public enum GameMode { Easy, Medium, Hard, Endless }
 public enum HitResult { Perfect, Good, Miss }
 
@@ -15,6 +23,10 @@ public class GameManager : MonoBehaviour
     [Header("Glow Settings")]
     [Tooltip("Increase this to make the Game Over screen neon colors glow brighter!")]
     public float glowIntensity = 2.5f;
+
+    [Header("Level Songs")]
+    [Tooltip("Add all your songs here! Make sure the names match the Main Menu perfectly.")]
+    public SongData[] allSongs;
 
     [Header("Custom Sound Effects")]
     [Tooltip("Assign your own sound effects here. If left empty, the game will use default procedural beeps.")]
@@ -90,59 +102,42 @@ public class GameManager : MonoBehaviour
 
     Color GetHDR(Color c) => new Color(c.r * glowIntensity, c.g * glowIntensity, c.b * glowIntensity, 1f);
 
-    AudioClip[] playlist;
-    int playlistIndex;
-
+    // ── THE NEW, FIXED SONG LOADER ───────────────────────────────────
     void TryPlayMusic()
     {
-        playlist = LoadPlaylist(currentMode.ToString());
-        playlistIndex = 0;
+        string pickedSong = PlayerPrefs.GetString("SelectedSong", "");
+        AudioClip clipToPlay = null;
 
-        if (playlist == null || playlist.Length == 0)
+        // Search our new list for the selected song
+        foreach (var song in allSongs)
         {
-            Debug.LogWarning($"[Music] No clips found in Resources/Music/{currentMode}/ or Resources/Music/{currentMode} — add audio files there!");
-            return;
+            if (song.songName == pickedSong)
+            {
+                clipToPlay = song.audioClip;
+                break;
+            }
         }
 
-        ShufflePlaylist();
-        music.loop = false;
-        PlayTrack(playlistIndex);
-    }
-
-    AudioClip[] LoadPlaylist(string modeName)
-    {
-        var clips = Resources.LoadAll<AudioClip>("Music/" + modeName);
-        if (clips != null && clips.Length > 0) return clips;
-
-        var single = Resources.Load<AudioClip>("Music/" + modeName);
-        if (single != null) return new[] { single };
-
-        return null;
-    }
-
-    void PlayTrack(int index)
-    {
-        if (playlist == null || index >= playlist.Length) return;
-        music.clip = playlist[index];
-
-        if (currentMode != GameMode.Endless && TileSpawner.Instance != null)
-            TileSpawner.Instance.SetDynamicBPM(playlist[index].name);
-
-        music.Play();
-
-        // --- RECORD EXACT AUDIO HARDWARE TIME ---
-        dspStartTime = AudioSettings.dspTime;
-
-        musicStarted = true;
-        Debug.Log($"[Music] Playing {index + 1}/{playlist.Length}: {playlist[index].name}");
-    }
-
-    void ShufflePlaylist()
-    {
-        for (int i = playlist.Length - 1; i > 0; i--)
+        if (clipToPlay != null)
         {
-            int j = Random.Range(0, i + 1);
-            (playlist[i], playlist[j]) = (playlist[j], playlist[i]);
+            music.clip = clipToPlay;
+            
+            // Sync BPM if we are not in Endless mode
+            if (currentMode != GameMode.Endless && TileSpawner.Instance != null)
+                TileSpawner.Instance.SetDynamicBPM(clipToPlay.name);
+
+            // Loop the song ONLY if we are in endless mode!
+            music.loop = (currentMode == GameMode.Endless);
+            music.Play();
+
+            // --- RECORD EXACT AUDIO HARDWARE TIME FOR RHYTHM SYNC ---
+            dspStartTime = AudioSettings.dspTime;
+            musicStarted = true;
+            Debug.Log($"<color=green>[Music] Successfully Playing: {pickedSong}</color>");
+        }
+        else
+        {
+            Debug.LogError($"<color=red>[Music] Could not find '{pickedSong}' in GameManager's All Songs list! Check your spelling.</color>");
         }
     }
 
@@ -251,7 +246,6 @@ public class GameManager : MonoBehaviour
         {
             music.UnPause();
             // --- RESYNC DSP TIME ---
-            // If we don't do this, unpausing will cause the notes to violently teleport forward!
             dspStartTime = AudioSettings.dspTime - music.time;
         }
         pausePanel.SetActive(paused);
@@ -261,12 +255,10 @@ public class GameManager : MonoBehaviour
     public void MainMenu() { Time.timeScale = 1f; SceneManager.LoadScene("MainMenu"); }
     public bool IsGameActive() => alive;
 
-    // --- THE MAGIC SYNC UPGRADE ---
     public float GetMusicTime()
     {
         if (music != null && music.clip != null && music.isPlaying && !paused)
         {
-            // Bypasses Unity's framerate entirely for silky smooth 100% precise syncing
             return (float)(AudioSettings.dspTime - dspStartTime);
         }
         else if (music != null && paused)

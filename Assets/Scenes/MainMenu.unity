@@ -727,7 +727,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MainMenuManager
   menuMusic: {fileID: 8300000, guid: bd594b55a2480f644ad3aa4fab6da670, type: 3}
-  hoverSound: {fileID: 0}
+  hoverSound: {fileID: 8300000, guid: 39b2e31162217aa4a9d683fbb75e55bd, type: 3}
   clickSound: {fileID: 8300000, guid: ab8e9ca2451c54d40bf0eb683e6b6d93, type: 3}
   easyIcon: {fileID: 0}
   mediumIcon: {fileID: 0}

@@ -4,14 +4,15 @@ MonoImporter:
   externalObjects: {}
   serializedVersion: 2
   defaultReferences:
+  - menuMusic: {instanceID: 0}
+  - hoverSound: {fileID: 8300000, guid: 39b2e31162217aa4a9d683fbb75e55bd, type: 3}
+  - clickSound: {instanceID: 0}
   - easyIcon: {instanceID: 0}
   - mediumIcon: {instanceID: 0}
   - hardIcon: {instanceID: 0}
   - endlessIcon: {instanceID: 0}
-  - quitIcon: {fileID: -5522147866384714983, guid: e31daf537c85a834a9c0e7d7d5aa2f44, type: 3}
+  - quitIcon: {instanceID: 0}
   - settingsIcon: {instanceID: 0}
-  - volumeIcon: {instanceID: 0}
-  - profileIcon: {instanceID: 0}
   executionOrder: 0
   icon: {instanceID: 0}
   userData: 
