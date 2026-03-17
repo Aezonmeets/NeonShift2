@@ -21,6 +21,7 @@ public class GameManager : MonoBehaviour
 
     [Header("Visuals & Background")]
     public float glowIntensity = 2.5f;
+    public bool isFeverMode = false; // <--- ADD THIS EXACT LINE!
     public Sprite backgroundImage;
     [Range(0f, 1f)] public float backgroundBrightness = 0.3f;
 

@@ -97,6 +97,21 @@ public class Tile : MonoBehaviour
         return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0f), 64f);
     }
 
+    // =========================================================================
+    // --- RAINBOW FEVER OVERRIDE (FIXED TO MATCH GAMEMANAGER) ---
+    // =========================================================================
+    Color GetActiveColor()
+    {
+        // Checks the exact name used in your GameManager: IsFeverActive
+        if (GameManager.Instance != null && GameManager.Instance.IsFeverActive)
+        {
+            float hue = Mathf.Repeat(Time.unscaledTime * 2f + (currentDist * 0.05f) + (lane * 0.1f), 1f);
+            return Color.HSVToRGB(hue, 1f, 1f);
+        }
+        return col; 
+    }
+    // =========================================================================
+
     void Update()
     {
         if (IsHit || IsMissed) return;
@@ -121,12 +136,9 @@ public class Tile : MonoBehaviour
 
         float distPast = currentDist - tc.hitDist;
 
-        // --- NEW: Calculate the exact absolute miss distance based on difficulty ---
         float missDistance = 0.08f;
         if (PlayerController.Instance != null)
         {
-            // We convert the negative lateGoodDistance to a positive threshold 
-            // and add a tiny 0.1 buffer so it doesn't trigger the exact frame it becomes unhittable
             missDistance = Mathf.Abs(PlayerController.Instance.lateGoodDistance) + 0.1f;
         }
 
@@ -147,14 +159,11 @@ public class Tile : MonoBehaviour
                 DistToHitLine = 999f;
             }
 
-            // Only die after the TAIL has passed the late good zone
             if (tailEndDist > tc.hitDist + missDistance) Miss();
         }
         else
         {
             DistToHitLine = distPast <= 0f ? Mathf.Abs(distPast) : 999f;
-
-            // Only die after the HEAD has passed the late good zone
             if (distPast > missDistance) Miss();
         }
     }
@@ -190,7 +199,6 @@ public class Tile : MonoBehaviour
             if (remainingLength <= 0f)
             {
                 holdComplete = true;
-                // Give the final Perfect score payout for holding all the way!
                 GameManager.Instance?.RegisterHit(HitResult.Perfect, transform.position);
                 Hit(HitResult.Perfect);
             }
@@ -203,12 +211,13 @@ public class Tile : MonoBehaviour
         IsBeingHeld = true;
         StopAllCoroutines();
 
+        Color c = GetActiveColor();
         if (body) body.color = new Color(
-            Mathf.Min(1f, col.r * glowIntensity * 1.6f),
-            Mathf.Min(1f, col.g * glowIntensity * 1.6f),
-            Mathf.Min(1f, col.b * glowIntensity * 1.6f), 1f);
+            Mathf.Min(1f, c.r * glowIntensity * 1.6f),
+            Mathf.Min(1f, c.g * glowIntensity * 1.6f),
+            Mathf.Min(1f, c.b * glowIntensity * 1.6f), 1f);
 
-        if (tail) tail.color = new Color(col.r * glowIntensity * 1.4f, col.g * glowIntensity * 1.4f, col.b * glowIntensity * 1.4f, 1f);
+        if (tail) tail.color = new Color(c.r * glowIntensity * 1.4f, c.g * glowIntensity * 1.4f, c.b * glowIntensity * 1.4f, 1f);
 
         StartCoroutine(HoldPulse());
     }
@@ -217,8 +226,12 @@ public class Tile : MonoBehaviour
     {
         while (IsBeingHeld && !IsHit && !IsMissed)
         {
+            Color c = GetActiveColor(); // <--- Fetch rainbow color!
             float p = 0.85f + Mathf.Sin(Time.time * 12f) * 0.15f;
-            if (body) body.color = new Color(col.r * glowIntensity * p, col.g * glowIntensity * p, col.b * glowIntensity * p, 1f);
+            
+            if (body) body.color = new Color(c.r * glowIntensity * p, c.g * glowIntensity * p, c.b * glowIntensity * p, 1f);
+            if (tail) tail.color = new Color(c.r * glowIntensity * 1.4f, c.g * glowIntensity * 1.4f, c.b * glowIntensity * 1.4f, 1f);
+            
             yield return null;
         }
     }
@@ -228,11 +241,10 @@ public class Tile : MonoBehaviour
         if (!IsBeingHeld) return;
         IsBeingHeld = false;
 
-        // If they let go early, it's a "Good" hit instead of a "Miss"!
         if (!holdComplete)
         {
             GameManager.Instance?.RegisterHit(HitResult.Good, transform.position);
-            Hit(HitResult.Good); // This cleanly fades it out and spawns a green "Good" particle
+            Hit(HitResult.Good); 
         }
     }
 
@@ -283,8 +295,9 @@ public class Tile : MonoBehaviour
         while (t < dur)
         {
             t += Time.deltaTime;
-            if (body) body.color = new Color(col.r * glowIntensity, col.g * glowIntensity, col.b * glowIntensity, 1f - t / dur);
-            if (tail) tail.color = new Color(col.r * glowIntensity * 0.7f, col.g * glowIntensity * 0.7f, col.b * glowIntensity * 0.7f, (1f - t / dur) * 0.75f);
+            Color c = GetActiveColor();
+            if (body) body.color = new Color(c.r * glowIntensity, c.g * glowIntensity, c.b * glowIntensity, 1f - t / dur);
+            if (tail) tail.color = new Color(c.r * glowIntensity * 0.7f, c.g * glowIntensity * 0.7f, c.b * glowIntensity * 0.7f, (1f - t / dur) * 0.75f);
             yield return null;
         }
         Destroy(gameObject);
@@ -294,8 +307,16 @@ public class Tile : MonoBehaviour
     {
         while (!IsHit && !IsMissed)
         {
+            Color c = GetActiveColor(); // <--- Fetch rainbow color!
             float p = 0.75f + Mathf.Sin(Time.time * 6f + lane) * 0.22f;
-            if (body) body.color = new Color(col.r * glowIntensity, col.g * glowIntensity, col.b * glowIntensity, p);
+            
+            if (body) body.color = new Color(c.r * glowIntensity, c.g * glowIntensity, c.b * glowIntensity, p);
+            
+            if (tail && GameManager.Instance != null && GameManager.Instance.IsFeverActive) 
+            {
+                tail.color = new Color(c.r * glowIntensity * 0.85f, c.g * glowIntensity * 0.85f, c.b * glowIntensity * 0.85f, 1f);
+            }
+            
             yield return null;
         }
     }

@@ -814,6 +814,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   currentMode: 0
   glowIntensity: 2
+  isFeverMode: 0
   backgroundImage: {fileID: 265051313471249744, guid: 5fc179aa7acf16d4095cc0961b8273c2, type: 3}
   backgroundBrightness: 0.844
   allSongs:
@@ -860,6 +861,11 @@ MonoBehaviour:
   customPerfectSound: {fileID: 8300000, guid: cd47b25cb610c5c46ad200651ae7c55f, type: 3}
   customGoodSound: {fileID: 8300000, guid: cd47b25cb610c5c46ad200651ae7c55f, type: 3}
   customMissSound: {fileID: 0}
+  activityThreshold: 0.02
+  overdriveSpeedMultiplier: 1.6
+  overdriveRotationMultiplier: 0.65
+  feverEnergyThreshold: 50
+  feverDuration: 10
 --- !u!4 &1629463987
 Transform:
   m_ObjectHideFlags: 0

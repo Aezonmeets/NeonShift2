@@ -91,7 +91,6 @@ public class TrackController : MonoBehaviour
         RefreshLines();
     }
 
-    // --- NEW: CALL THIS FROM PLAYERCONTROLLER WHEN A KEY IS PRESSED ---
     public void PulseLane(int lane)
     {
         if (lane >= 0 && lane < laneCount && lineGlow != null)
@@ -121,6 +120,25 @@ public class TrackController : MonoBehaviour
 
             // --- UNIFIED COLOR RENDERING ---
             Color baseColor = (i < laneCount) ? LaneColors[i] : LaneColors[laneCount - 1];
+            float currentLineWidth = 0.06f; // Standard line width
+
+            // ========================================================
+            // --- RAINBOW FEVER GLOW OVERRIDE ---
+            if (GameManager.Instance != null && GameManager.Instance.IsFeverActive)
+            {
+                // 1. Get the rainbow color
+                float hue = Mathf.Repeat(Time.unscaledTime * 1.5f + (i * 0.15f), 1f);
+                Color rainbow = Color.HSVToRGB(hue, 1f, 1f);
+                
+                // 2. Multiply by the GameManager's Glow Intensity to make it shine!
+                // We multiply it by 1.5f to give the lines a little extra punch
+                float feverGlow = GameManager.Instance.glowIntensity * 1.5f;
+                baseColor = new Color(rainbow.r * feverGlow, rainbow.g * feverGlow, rainbow.b * feverGlow, 1f);
+                
+                // 3. Make the lines physically thicker during Fever Mode
+                currentLineWidth = 0.1f; 
+            }
+            // ========================================================
 
             // 1. Apply Overdrive Warning Flash
             Color currentCol = Color.Lerp(baseColor, Color.white, warningPulse);
@@ -132,14 +150,14 @@ public class TrackController : MonoBehaviour
                 currentCol = Color.Lerp(currentCol, Color.white, lineGlow[i] * 0.7f); // Shift toward white
                 targetAlpha = Mathf.Lerp(targetAlpha, 1.0f, lineGlow[i]); // Maximize alpha
 
-                // Thicken the line when hit for a punchy feel
-                laneLines[i].startWidth = 0.06f + (lineGlow[i] * 0.06f);
-                laneLines[i].endWidth = 0.06f + (lineGlow[i] * 0.06f);
+                // Thicken the line even more when the player hits a note in this lane
+                laneLines[i].startWidth = currentLineWidth + (lineGlow[i] * 0.06f);
+                laneLines[i].endWidth = currentLineWidth + (lineGlow[i] * 0.06f);
             }
             else
             {
-                laneLines[i].startWidth = 0.06f;
-                laneLines[i].endWidth = 0.06f;
+                laneLines[i].startWidth = currentLineWidth;
+                laneLines[i].endWidth = currentLineWidth;
             }
 
             Gradient grad = new Gradient();
