@@ -46,7 +46,7 @@ public class MainMenuManager : MonoBehaviour
     GameObject nameEntryPanel;
     GameObject songSelectionPanel;
     GameObject tutorialPanel;
-    GameObject songListContainer;
+    RectTransform songListContentRT;
     TMP_InputField nameInput;
     int pendingModeIndex = 0;
 
@@ -184,7 +184,7 @@ public class MainMenuManager : MonoBehaviour
         {
             int mi = i;
             ModeButton(cgo, ModeLabels[i], modeSprites[i], ModeBorderColors[i],
-                new Vector2(0, startY + gap * i), () => {
+                new Vector2(0, startY + gap * i), i * 0.1f, () => {
                     pendingModeIndex = mi;
                     PopulateSongList(mi);
                     if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Show();
@@ -194,10 +194,10 @@ public class MainMenuManager : MonoBehaviour
         }
 
         ModeButton(cgo, "LEADERBOARD", null, new Color(0.4f, 0.7f, 1f),
-            new Vector2(0, startY + gap * 4), () => LeaderboardManager.OpenLeaderboardScene("MainMenu"));
+            new Vector2(0, startY + gap * 4), 0.4f, () => LeaderboardManager.OpenLeaderboardScene("MainMenu"));
 
         ModeButton(cgo, "QUIT GAME", quitIcon, new Color(0.4f, 0.45f, 0.55f),
-            new Vector2(0, startY + gap * 5), () => Application.Quit());
+            new Vector2(0, startY + gap * 5), 0.5f, () => Application.Quit());
 
         tutorialPanel = CreateTutorialPanel(cgo);
         settingsPanel = CreateSettingsPanel(cgo);
@@ -286,10 +286,9 @@ public class MainMenuManager : MonoBehaviour
         tutTileImg = tObj.AddComponent<Image>();
         tObj.SetActive(false);
 
-        ModeButton(panel, "SKIP TUTORIAL", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -320), () => {
+        ModeButton(panel, "SKIP TUTORIAL", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -320), 0.1f, () => {
             if (activeTutorial != null) StopCoroutine(activeTutorial);
 
-            // CLEANUP: Destroys any leftover tiles if the user skips during the barrage!
             foreach (Transform child in tutTrackContainer)
             {
                 if (child.name == "TutTile(Clone)") Destroy(child.gameObject);
@@ -473,7 +472,6 @@ public class MainMenuManager : MonoBehaviour
 
         List<RectTransform> overdriveTiles = new List<RectTransform>();
 
-        // LOCAL FUNCTION: Handles finding and destroying the lowest tile when mashing
         void ProcessMash(int laneIndex, float laneX, Color color)
         {
             if (sfx != null) sfx.PlayOneShot(clickSound);
@@ -482,7 +480,6 @@ public class MainMenuManager : MonoBehaviour
             int hitIdx = -1;
             float minY = 9999f;
 
-            // Search for the lowest tile in the pressed lane
             for (int i = 0; i < overdriveTiles.Count; i++)
             {
                 if (Mathf.Abs(overdriveTiles[i].anchoredPosition.x - laneX) < 5f)
@@ -495,7 +492,6 @@ public class MainMenuManager : MonoBehaviour
                 }
             }
 
-            // If we found a tile and it is somewhat near the bottom (generous mashing area)
             if (hitIdx != -1 && minY < 150f)
             {
                 Destroy(overdriveTiles[hitIdx].gameObject);
@@ -521,7 +517,6 @@ public class MainMenuManager : MonoBehaviour
                 overdriveTiles.Add(newTileRT);
             }
 
-            // Move the whole wave downwards
             for (int i = overdriveTiles.Count - 1; i >= 0; i--)
             {
                 RectTransform rt = overdriveTiles[i];
@@ -533,7 +528,6 @@ public class MainMenuManager : MonoBehaviour
                 }
             }
 
-            // Hit detection triggering the destroy logic!
             if (Input.GetKeyDown(KeyCode.D)) ProcessMash(0, tLaneX[0], tKeyColors[0]);
             if (Input.GetKeyDown(KeyCode.F)) ProcessMash(1, tLaneX[1], tKeyColors[1]);
             if (Input.GetKeyDown(KeyCode.J)) ProcessMash(2, tLaneX[2], tKeyColors[2]);
@@ -591,7 +585,7 @@ public class MainMenuManager : MonoBehaviour
             if (sfx != null) sfx.volume = val;
         });
 
-        ModeButton(panel, "HOW TO PLAY", null, MAGENTA, new Vector2(0, -90), () => {
+        ModeButton(panel, "HOW TO PLAY", null, MAGENTA, new Vector2(0, -90), 0.1f, () => {
             panel.GetComponent<NeonPanelAnim>().Hide();
             if (tutorialPanel != null)
             {
@@ -601,7 +595,7 @@ public class MainMenuManager : MonoBehaviour
             }
         });
 
-        ModeButton(panel, "CLOSE MENU", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -160), () => {
+        ModeButton(panel, "CLOSE MENU", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -160), 0.2f, () => {
             panel.GetComponent<NeonPanelAnim>().Hide();
         });
 
@@ -609,11 +603,9 @@ public class MainMenuManager : MonoBehaviour
         return panel;
     }
 
-
     // ──────────────────────────────────────────────────────────────────────────
-    // ── STANDARD PANELS (Unchanged)
+    // ── SONG SELECTION PANEL 
     // ──────────────────────────────────────────────────────────────────────────
-
     GameObject CreateSongSelectionPanel(GameObject canvasGo)
     {
         var panel = new GameObject("SongSelectionPanel");
@@ -631,13 +623,41 @@ public class MainMenuManager : MonoBehaviour
 
         T(panel, "SELECT TRACK", 35, new Vector2(0, 240), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center).color = MAGENTA;
 
-        songListContainer = new GameObject("Container");
-        songListContainer.transform.SetParent(panel.transform, false);
-        var crt = songListContainer.AddComponent<RectTransform>();
-        crt.anchorMin = crt.anchorMax = A(0.5f, 0.5f);
-        crt.anchoredPosition = new Vector2(0, 0);
+        var scrollView = new GameObject("ScrollView");
+        scrollView.transform.SetParent(panel.transform, false);
+        var svRT = scrollView.AddComponent<RectTransform>();
+        svRT.anchorMin = svRT.anchorMax = A(0.5f, 0.5f);
+        svRT.sizeDelta = new Vector2(510, 380);
+        svRT.anchoredPosition = new Vector2(0, -20);
 
-        ModeButton(panel, "CANCEL", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -250), () => {
+        var viewport = new GameObject("Viewport");
+        viewport.transform.SetParent(scrollView.transform, false);
+        var vpRT = viewport.AddComponent<RectTransform>();
+        vpRT.anchorMin = Vector2.zero; vpRT.anchorMax = Vector2.one;
+        vpRT.offsetMin = vpRT.offsetMax = Vector2.zero;
+        viewport.AddComponent<RectMask2D>();
+
+        var content = new GameObject("Content");
+        content.transform.SetParent(viewport.transform, false);
+        songListContentRT = content.AddComponent<RectTransform>();
+        songListContentRT.anchorMin = new Vector2(0, 1); songListContentRT.anchorMax = new Vector2(1, 1);
+        songListContentRT.pivot = new Vector2(0.5f, 1f);
+        songListContentRT.anchoredPosition = Vector2.zero;
+
+        var contentImg = content.AddComponent<Image>();
+        contentImg.color = Color.clear;
+
+        var sr = scrollView.AddComponent<ScrollRect>();
+        sr.viewport = vpRT;
+        sr.content = songListContentRT;
+        sr.horizontal = false;
+        sr.vertical = true;
+        sr.scrollSensitivity = 35f;
+        sr.movementType = ScrollRect.MovementType.Elastic;
+        sr.inertia = true;
+        sr.decelerationRate = 0.135f;
+
+        ModeButton(panel, "CANCEL", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -250), 0.1f, () => {
             panel.GetComponent<NeonPanelAnim>().Hide();
         });
 
@@ -647,7 +667,7 @@ public class MainMenuManager : MonoBehaviour
 
     void PopulateSongList(int modeIndex)
     {
-        foreach (Transform child in songListContainer.transform)
+        foreach (Transform child in songListContentRT.transform)
         {
             Destroy(child.gameObject);
         }
@@ -657,19 +677,26 @@ public class MainMenuManager : MonoBehaviour
 
         if (loadedTracks.Length == 0)
         {
-            SongButton(songListContainer, "No Tracks Found!", ModeBorderColors[modeIndex], Vector2.zero, () => { });
+            songListContentRT.sizeDelta = new Vector2(0, 100);
+            SongButton(songListContentRT.gameObject, "No Tracks Found!", ModeBorderColors[modeIndex], new Vector2(0, -50), 0f, () => { });
             return;
         }
 
-        float startY = (loadedTracks.Length - 1) * 55f / 2f;
+        float itemHeight = 55f;
+        float padding = 20f;
+
+        float calculatedHeight = (loadedTracks.Length * itemHeight) + padding;
+        songListContentRT.sizeDelta = new Vector2(0, calculatedHeight);
+        songListContentRT.anchoredPosition = Vector2.zero;
+
+        float startY = -itemHeight / 2f - 10f;
 
         for (int i = 0; i < loadedTracks.Length; i++)
         {
             string songName = loadedTracks[i].name;
-            float yPos = startY - (i * 55f);
+            float yPos = startY - (i * itemHeight);
 
-            SongButton(songListContainer, songName, ModeBorderColors[modeIndex], new Vector2(0, yPos), () => {
-
+            SongButton(songListContentRT.gameObject, songName, ModeBorderColors[modeIndex], new Vector2(0, yPos), i * 0.05f, () => {
                 PlayerPrefs.SetString("SelectedSong", songName);
                 PlayerPrefs.SetString("SelectedDifficulty", targetFolder);
 
@@ -679,51 +706,6 @@ public class MainMenuManager : MonoBehaviour
                 if (nameEntryPanel != null) nameEntryPanel.GetComponent<NeonPanelAnim>().Show();
             });
         }
-    }
-
-    void SongButton(GameObject p, string lbl, Color col, Vector2 pos, UnityEngine.Events.UnityAction cb)
-    {
-        var go = new GameObject("SongBtn_" + lbl);
-        go.transform.SetParent(p.transform, false);
-        var rt = go.AddComponent<RectTransform>();
-        rt.anchorMin = rt.anchorMax = A(.5f, .5f);
-        rt.anchoredPosition = pos;
-        rt.sizeDelta = new Vector2(480, 45);
-
-        var img = go.AddComponent<Image>();
-        img.color = new Color(0.08f, 0.10f, 0.13f, 0.95f);
-        var outline = go.AddComponent<Outline>();
-        outline.effectColor = new Color(col.r, col.g, col.b, 0.25f);
-        outline.effectDistance = new Vector2(1, -1);
-
-        var bar = new GameObject("Bar"); bar.transform.SetParent(go.transform, false);
-        var brt = bar.AddComponent<RectTransform>();
-        brt.anchorMin = new Vector2(0, 0f); brt.anchorMax = new Vector2(0, 1f);
-        brt.offsetMin = new Vector2(0, 1); brt.offsetMax = new Vector2(5, -1);
-        bar.AddComponent<Image>().color = new Color(col.r, col.g, col.b, 1f);
-
-        var tgo = new GameObject("Label"); tgo.transform.SetParent(go.transform, false);
-        var trt = tgo.AddComponent<RectTransform>();
-        trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
-        trt.offsetMin = new Vector2(20, 0); trt.offsetMax = new Vector2(-10, 0);
-        var tmp = tgo.AddComponent<TextMeshProUGUI>();
-        tmp.text = lbl; tmp.fontSize = 16; tmp.fontStyle = FontStyles.Bold;
-        tmp.alignment = TextAlignmentOptions.Left;
-        tmp.color = Color.white;
-        tmp.overflowMode = TextOverflowModes.Ellipsis;
-        tmp.raycastTarget = false;
-
-        var btn = go.AddComponent<Button>(); btn.targetGraphic = img;
-        btn.onClick.AddListener(cb);
-
-        var cb2 = btn.colors;
-        cb2.fadeDuration = 0.1f;
-        cb2.highlightedColor = new Color(col.r * 0.2f, col.g * 0.2f, col.b * 0.2f, 0.95f);
-        cb2.pressedColor = new Color(col.r * 0.3f, col.g * 0.3f, col.b * 0.3f, 0.95f);
-        btn.colors = cb2;
-
-        AddButtonSounds(btn);
-        go.AddComponent<NeonButtonJuice>();
     }
 
     GameObject CreateNameEntryPanel(GameObject canvasGo)
@@ -781,7 +763,7 @@ public class MainMenuManager : MonoBehaviour
 
         nameInput.text = PlayerPrefs.GetString("PlayerName", generatedName);
 
-        ModeButton(panel, "INITIALIZE", null, new Color(0.1f, 1f, 0.4f), new Vector2(0, -65), () => {
+        ModeButton(panel, "INITIALIZE", null, new Color(0.1f, 1f, 0.4f), new Vector2(0, -65), 0.1f, () => {
             string finalName = string.IsNullOrEmpty(nameInput.text) ? "UnknownPlayer" : nameInput.text;
             PlayerPrefs.SetString("PlayerName", finalName);
             PlayerPrefs.SetInt("SelectedMode", pendingModeIndex);
@@ -791,13 +773,61 @@ public class MainMenuManager : MonoBehaviour
             SceneManager.LoadScene("GameScene");
         });
 
-        ModeButton(panel, "BACK", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -120), () => {
+        ModeButton(panel, "BACK", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -120), 0.2f, () => {
             panel.GetComponent<NeonPanelAnim>().Hide();
             if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Show();
         });
 
         panel.AddComponent<NeonPanelAnim>();
         return panel;
+    }
+
+    void SongButton(GameObject p, string lbl, Color col, Vector2 pos, float animDelay, UnityEngine.Events.UnityAction cb)
+    {
+        var go = new GameObject("SongBtn_" + lbl);
+        go.transform.SetParent(p.transform, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = A(.5f, 1f);
+        rt.anchoredPosition = pos;
+        rt.sizeDelta = new Vector2(480, 45);
+
+        var img = go.AddComponent<Image>();
+        img.color = new Color(0.08f, 0.10f, 0.13f, 0.95f);
+        var outline = go.AddComponent<Outline>();
+        outline.effectColor = new Color(col.r, col.g, col.b, 0.25f);
+        outline.effectDistance = new Vector2(1, -1);
+
+        var bar = new GameObject("Bar"); bar.transform.SetParent(go.transform, false);
+        var brt = bar.AddComponent<RectTransform>();
+        brt.anchorMin = new Vector2(0, 0f); brt.anchorMax = new Vector2(0, 1f);
+        brt.offsetMin = new Vector2(0, 1); brt.offsetMax = new Vector2(5, -1);
+        bar.AddComponent<Image>().color = new Color(col.r, col.g, col.b, 1f);
+
+        var tgo = new GameObject("Label"); tgo.transform.SetParent(go.transform, false);
+        var trt = tgo.AddComponent<RectTransform>();
+        trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
+        trt.offsetMin = new Vector2(20, 0); trt.offsetMax = new Vector2(-10, 0);
+        var tmp = tgo.AddComponent<TextMeshProUGUI>();
+        tmp.text = lbl; tmp.fontSize = 16; tmp.fontStyle = FontStyles.Bold;
+        tmp.alignment = TextAlignmentOptions.Left;
+        tmp.color = Color.white;
+        tmp.overflowMode = TextOverflowModes.Ellipsis;
+        tmp.raycastTarget = false;
+
+        var btn = go.AddComponent<Button>(); btn.targetGraphic = img;
+        btn.onClick.AddListener(cb);
+
+        var cb2 = btn.colors;
+        cb2.fadeDuration = 0.1f;
+        cb2.highlightedColor = new Color(col.r * 0.2f, col.g * 0.2f, col.b * 0.2f, 0.95f);
+        cb2.pressedColor = new Color(col.r * 0.3f, col.g * 0.3f, col.b * 0.3f, 0.95f);
+        btn.colors = cb2;
+
+        AddButtonSounds(btn);
+        go.AddComponent<NeonButtonJuice>();
+
+        var anim = go.AddComponent<NeonSlideInAnim>();
+        anim.delay = animDelay;
     }
 
     void CreateSlider(GameObject parent, string label, float yPos, float startVal, UnityEngine.Events.UnityAction<float> onValueChanged)
@@ -837,7 +867,7 @@ public class MainMenuManager : MonoBehaviour
         slider.onValueChanged.AddListener(onValueChanged);
     }
 
-    void ModeButton(GameObject p, string lbl, Sprite iconSprite, Color col, Vector2 pos, UnityEngine.Events.UnityAction cb)
+    void ModeButton(GameObject p, string lbl, Sprite iconSprite, Color col, Vector2 pos, float animDelay, UnityEngine.Events.UnityAction cb)
     {
         var go = new GameObject("Btn_" + lbl);
         go.transform.SetParent(p.transform, false);
@@ -893,6 +923,9 @@ public class MainMenuManager : MonoBehaviour
 
         AddButtonSounds(btn);
         go.AddComponent<NeonButtonJuice>();
+
+        var anim = go.AddComponent<NeonSlideInAnim>();
+        anim.delay = animDelay;
     }
 
     void AddButtonSounds(Button btn)
@@ -943,6 +976,53 @@ public class MainMenuManager : MonoBehaviour
     }
 
     static Vector2 A(float x, float y) => new Vector2(x, y);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ── ANIMATION CLASSES
+// ──────────────────────────────────────────────────────────────────────────
+public class NeonSlideInAnim : MonoBehaviour
+{
+    public float delay = 0f;
+    Vector2 targetPos;
+    Vector2 startOffset = new Vector2(-60f, 0f);
+    CanvasGroup cg;
+    RectTransform rt;
+    float timer = 0f;
+    bool started = false;
+
+    void Awake()
+    {
+        cg = gameObject.AddComponent<CanvasGroup>();
+        cg.alpha = 0;
+        rt = GetComponent<RectTransform>();
+    }
+
+    void Start()
+    {
+        targetPos = rt.anchoredPosition;
+        rt.anchoredPosition += startOffset;
+    }
+
+    void Update()
+    {
+        if (timer < delay)
+        {
+            timer += Time.deltaTime;
+            return;
+        }
+
+        started = true;
+        cg.alpha = Mathf.Lerp(cg.alpha, 1f, Time.deltaTime * 12f);
+        rt.anchoredPosition = Vector2.Lerp(rt.anchoredPosition, targetPos, Time.deltaTime * 12f);
+
+        if (cg.alpha > 0.99f && Vector2.Distance(rt.anchoredPosition, targetPos) < 0.5f)
+        {
+            cg.alpha = 1f;
+            rt.anchoredPosition = targetPos;
+            Destroy(this);
+        }
+    }
 }
 
 public class NeonButtonJuice : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
