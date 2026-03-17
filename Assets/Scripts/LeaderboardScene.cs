@@ -6,57 +6,72 @@ using System.Collections.Generic;
 
 public class LeaderboardScene : MonoBehaviour
 {
-    // ── Palette ──────
-    static readonly Color DARK_BG = new Color(0.04f, 0.04f, 0.08f, 1f);
+    // ── FRONT-END PALETTE (HDR ENABLED FOR BLOOM) ──────
+    static readonly Color DARK_BG = new Color(0.04f, 0.05f, 0.08f, 1f);
 
-    static readonly Color MAGENTA = new Color(1f, 0.15f, 0.75f, 1f);
-    static readonly Color CYAN = new Color(0f, 0.92f, 1f, 1f);
-    
-    // Gold Theme (1st Place)
-    static readonly Color GOLD_TEXT = new Color(1f, 0.85f, 0f, 1f);
-    static readonly Color GOLD_BORDER = new Color(0.8f, 0.65f, 0f, 1f);
-    static readonly Color GOLD_BG_TINT = new Color(0.8f, 0.6f, 0f, 0.15f);
+    // This multiplier pushes the colors past 1.0 (HDR) so the Camera's Bloom catches them
+    const float GLOW = 1.8f;
 
-    static readonly Color ROW_BG = new Color(0.08f, 0.08f, 0.12f, 0.8f);
+    static readonly Color CYAN_ACCENT = new Color(0f, 0.85f * GLOW, 1f * GLOW, 1f);
+    static readonly Color CYAN_HEADER = new Color(0f, 0.7f * GLOW, 0.8f * GLOW, 1f);
+
+    // Background Tints 
+    static readonly Color GOLD_BG = new Color(1f, 0.85f, 0f, 0.1f);
+    static readonly Color CYAN_BG = new Color(0f, 0.85f, 1f, 0.1f);
+    static readonly Color ROW_BG_DEFAULT = new Color(1f, 1f, 1f, 0.02f);
+    static readonly Color TAB_ACTIVE_BG = new Color(0f, 0.85f, 1f, 0.15f);
+
+    // Outline Borders
+    static readonly Color GOLD_OUTLINE = new Color(1f * GLOW, 0.85f * GLOW, 0f, 0.8f);
+    static readonly Color CYAN_OUTLINE = new Color(0f, 0.85f * GLOW, 1f * GLOW, 0.8f);
     static readonly Color BORDER_DIM = new Color(1f, 1f, 1f, 0.25f);
+
+    // Text Colors
+    static readonly Color GOLD_TEXT = new Color(1f * GLOW, 0.85f * GLOW, 0.1f * GLOW, 1f);
     static readonly Color DIM_TEXT = new Color(0.4f, 0.45f, 0.55f, 1f);
+    static readonly Color EASY_GREEN = new Color(0.1f * GLOW, 1f * GLOW, 0.4f * GLOW, 1f);
+    static readonly Color MED_YELLOW = new Color(1f * GLOW, 0.85f * GLOW, 0.1f * GLOW, 1f);
+    static readonly Color HARD_ORANGE = new Color(1f * GLOW, 0.45f * GLOW, 0.1f * GLOW, 1f);
+    static readonly Color ENDLESS_PINK = new Color(0.9f * GLOW, 0.1f * GLOW, 0.3f * GLOW, 1f);
 
     static readonly string[] TabLabels = { "ALL", "EASY", "MEDIUM", "HARD", "ENDLESS" };
     static readonly string[] TabFilters = { null, "Easy", "Medium", "Hard", "Endless" };
 
-   static readonly (string h, float x, float w, TextAlignmentOptions a)[] Cols = {
-        ("#",      -420f,  60f,  TextAlignmentOptions.Left),
-        ("NAME",   -300f, 200f,  TextAlignmentOptions.Left),
-        ("SCORE",     0f, 140f,  TextAlignmentOptions.Center), // Shifted left
-        ("ACC",     140f,  90f,  TextAlignmentOptions.Center), // Shifted left
-        ("MODE",    250f, 110f,  TextAlignmentOptions.Center), // Shifted left
-        ("DATE",    380f, 150f,  TextAlignmentOptions.Right),  // Safely tucked inside the right edge
+    static readonly (string h, float x, float w, TextAlignmentOptions a)[] Cols = {
+        ("#",      -410f,  60f,  TextAlignmentOptions.Left),
+        ("NAME",   -260f, 200f,  TextAlignmentOptions.Left),
+        ("SCORE",     0f, 140f,  TextAlignmentOptions.Center),
+        ("ACC",     140f,  90f,  TextAlignmentOptions.Center),
+        ("MODE",    260f, 110f,  TextAlignmentOptions.Center),
+        ("DATE",    390f, 130f,  TextAlignmentOptions.Right),
     };
 
-    const float ROW_H = 50f;
+    const float ROW_H = 48f;
     const float ROW_GAP = 8f;
-    const int PAGE_SIZE = 10;
-    const float ROW_W = 960f;
+    const float ROW_W = 940f;
 
     int currentTab = 0;
-    int currentPage = 0;
     List<LeaderboardEntry> displayList = new List<LeaderboardEntry>();
 
     GameObject canvas;
     GameObject rowContainer;
-    TextMeshProUGUI pageLabel;
-    Button prevBtn, nextBtn;
+    ScrollRect scrollRect;
     Button[] tabButtons;
-    Image[] tabGlows; // Tracks the glow behind the tabs
-    
-    Sprite roundedSprite;
-    Sprite glowSprite; // NEW: The procedural soft glow texture
-    bool clearPending = false;
+
+    Sprite fillSprite;
+    Sprite borderSprite;
+    Camera uiCamera;
 
     void Start()
     {
-        Camera.main.backgroundColor = DARK_BG;
-        Camera.main.clearFlags = CameraClearFlags.SolidColor;
+        // Find the camera aggressively (in case MainCamera tag is missing)
+        uiCamera = Camera.main != null ? Camera.main : FindFirstObjectByType<Camera>();
+
+        if (uiCamera != null)
+        {
+            uiCamera.backgroundColor = DARK_BG;
+            uiCamera.clearFlags = CameraClearFlags.SolidColor;
+        }
 
         if (FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>() == null)
         {
@@ -65,66 +80,84 @@ public class LeaderboardScene : MonoBehaviour
             es.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
         }
 
-        // --- Generate solid rounded sprite ---
-        Texture2D tex = new Texture2D(8, 8);
-        for (int y = 0; y < 8; y++)
-            for (int x = 0; x < 8; x++) tex.SetPixel(x, y, Color.white);
-        tex.Apply();
-        roundedSprite = Sprite.Create(tex, new Rect(0, 0, 8, 8), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(2, 2, 2, 2));
-
-        // --- NEW: Generate soft radial glow sprite ---
-        glowSprite = CreateGlowSprite();
+        fillSprite = GenerateSDFSprite(false);
+        borderSprite = GenerateSDFSprite(true);
 
         var _ = LeaderboardManager.Instance;
         BuildUI();
+        SpawnBackgroundParticles();
         SelectTab(0);
     }
 
-    // ── PROCEDURAL GLOW GENERATOR ──
-    Sprite CreateGlowSprite()
+    Sprite GenerateSDFSprite(bool hollow)
     {
-        int size = 128;
-        Texture2D tex = new Texture2D(size, size);
-        Vector2 center = new Vector2(size / 2f, size / 2f);
-        
+        int size = 32;
+        int borderThickness = 2;
+
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Point;
+        Color[] pixels = new Color[size * size];
+
         for (int y = 0; y < size; y++)
         {
             for (int x = 0; x < size; x++)
             {
-                float dist = Vector2.Distance(new Vector2(x, y), center) / (size / 2f);
-                float alpha = Mathf.Clamp01(1f - dist);
-                alpha = Mathf.Pow(alpha, 1.5f); // Soften the edge falloff
-                tex.SetPixel(x, y, new Color(1, 1, 1, alpha));
+                float alpha = 0f;
+                if (hollow)
+                {
+                    if (x < borderThickness || x >= size - borderThickness ||
+                        y < borderThickness || y >= size - borderThickness)
+                    {
+                        alpha = 1f;
+                    }
+                }
+                else
+                {
+                    alpha = 1f;
+                }
+                pixels[y * size + x] = new Color(1, 1, 1, alpha);
             }
         }
+
+        tex.SetPixels(pixels);
         tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(size/2.1f, size/2.1f, size/2.1f, size/2.1f));
+
+        Vector4 sliceBorder = new Vector4(borderThickness, borderThickness, borderThickness, borderThickness);
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, sliceBorder);
     }
 
-    // ── HELPER TO ADD GLOW TO ANY UI ELEMENT ──
-    Image AddGlow(GameObject parent, Color color, Vector2 expansion)
+    void SpawnBackgroundParticles()
     {
-        var glowGo = Rect("Glow", parent);
-        glowGo.transform.SetAsFirstSibling(); // Push it behind the main graphic
-        var rt = glowGo.GetComponent<RectTransform>();
-        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
-        rt.offsetMin = -expansion; rt.offsetMax = expansion; // Expand outward
-        
-        var img = glowGo.AddComponent<Image>();
-        img.sprite = glowSprite;
-        img.type = Image.Type.Sliced;
-        img.color = color;
-        img.raycastTarget = false;
-        return img;
+        var pCont = Rect("Particles", canvas);
+        pCont.transform.SetSiblingIndex(1);
+
+        for (int i = 0; i < 30; i++)
+        {
+            var p = Rect("Particle", pCont);
+            var img = p.gameObject.AddComponent<Image>();
+            img.color = new Color(0f, 0.8f * GLOW, 1f * GLOW, 0.15f);
+
+            var rt = p.GetComponent<RectTransform>();
+            rt.sizeDelta = new Vector2(Random.Range(8, 15), 2);
+            rt.anchoredPosition = new Vector2(Random.Range(-640, 640), Random.Range(-360, 360));
+            rt.localRotation = Quaternion.Euler(0, 0, Random.Range(-25, -35));
+
+            var floater = p.gameObject.AddComponent<UIFloater>();
+            floater.speed = Random.Range(10f, 25f);
+        }
     }
 
     void BuildUI()
     {
         canvas = new GameObject("Canvas");
         var cv = canvas.AddComponent<Canvas>();
+
+        // --- SCREEN SPACE CAMERA LOGIC ---
+        // This is exactly what Unity needs to apply your camera's post-processing (Bloom) 
+        // to the Canvas while keeping it pinned to the screen like an overlay.
         cv.renderMode = RenderMode.ScreenSpaceCamera;
-        cv.worldCamera = Camera.main;
-        cv.planeDistance = 5f;
+        cv.worldCamera = uiCamera;
+        cv.planeDistance = 1f; // Placed right in front of the camera to act as an overlay
         cv.sortingOrder = 10;
 
         var sc = canvas.AddComponent<CanvasScaler>();
@@ -136,142 +169,148 @@ public class LeaderboardScene : MonoBehaviour
         var bg = Rect("BG", canvas); Fill(bg);
         bg.AddComponent<Image>().color = DARK_BG;
 
-        // Massive ambient background glow
-        AddGlow(bg.gameObject, new Color(CYAN.r, CYAN.g, CYAN.b, 0.1f), new Vector2(-200, -100));
-
-        // ── TOP CORNER BUTTONS ──
         var header = Rect("Header", canvas);
         AnchorStretchTop(header, 120f);
 
-        var backBtn = OutlineBtn("BACK", BORDER_DIM, CYAN, header, new Vector2(120, -60), new Vector2(80, 36), GoBack);
+        // --- BACK & CLEAR BUTTONS ---
+        var backBtn = OutlineBtn("BACK", CYAN_ACCENT, CYAN_ACCENT, new Color(0f, 0.1f, 0.15f, 0.8f), header, new Vector2(100, -70), new Vector2(90, 36), GoBack);
         var backRT = backBtn.GetComponent<RectTransform>();
         backRT.anchorMin = backRT.anchorMax = new Vector2(0, 1);
-        AddGlow(backBtn.gameObject, new Color(CYAN.r, CYAN.g, CYAN.b, 0.2f), new Vector2(10, 10));
 
-        var clrBtn = OutlineBtn("", BORDER_DIM, DIM_TEXT, header, new Vector2(-120, -60), new Vector2(80, 36), TryClear);
-        var clrRT = clrBtn.GetComponent<RectTransform>();
-        clrRT.anchorMin = clrRT.anchorMax = new Vector2(1, 1);
+        var clearBtn = OutlineBtn("CLEAR ALL", CYAN_ACCENT, CYAN_ACCENT, new Color(0f, 0.1f, 0.15f, 0.8f), header, new Vector2(-100, -70), new Vector2(110, 36), ClearLeaderboard);
+        var clearRT = clearBtn.GetComponent<RectTransform>();
+        clearRT.anchorMin = clearRT.anchorMax = new Vector2(1, 1);
 
-        // ── TITLE (With Massive Magenta Glow) ──
+        // --- TITLE ---
         var titleContainer = Rect("TitleContainer", header);
-        SetAP(titleContainer, new Vector2(0, -60), new Vector2(.5f, 1f), new Vector2(600, 60));
+        SetAP(titleContainer, new Vector2(0, -65), new Vector2(.5f, 1f), new Vector2(600, 100));
 
-        var mainTitle = TMP("Title", titleContainer, "LEADERBOARD", 54, MAGENTA, FontStyles.Bold, TextAlignmentOptions.Center);
-        SetAP(mainTitle, Vector2.zero, new Vector2(.5f, .5f), new Vector2(600, 60));
-        
-        var shadow = mainTitle.AddComponent<Shadow>();
-        shadow.effectColor = new Color(CYAN.r, CYAN.g, CYAN.b, 0.9f);
-        shadow.effectDistance = new Vector2(3, -3);
+        var mainTitle = TMP("Title", titleContainer, "LEADERBOARD", 56, Color.white * GLOW, FontStyles.Bold, TextAlignmentOptions.Center);
+        SetAP(mainTitle, Vector2.zero, new Vector2(.5f, .5f), new Vector2(600, 100));
+        mainTitle.GetComponent<TextMeshProUGUI>().overflowMode = TextOverflowModes.Overflow;
 
-        // Add the intense backlight glow
-        AddGlow(mainTitle.gameObject, new Color(MAGENTA.r, MAGENTA.g, MAGENTA.b, 0.45f), new Vector2(80, 40));
+        var shadow = mainTitle.gameObject.AddComponent<Shadow>();
+        shadow.effectColor = new Color(CYAN_ACCENT.r, CYAN_ACCENT.g, CYAN_ACCENT.b, 0.5f);
+        shadow.effectDistance = new Vector2(0, -3);
 
-        // ── TABS ──
+        // --- TABS ---
         var tabBar = Rect("TabBar", canvas);
         var tbRT = tabBar.GetComponent<RectTransform>();
         tbRT.anchorMin = new Vector2(0, 1); tbRT.anchorMax = new Vector2(1, 1);
-        tbRT.offsetMin = new Vector2(0, -120 - 40); tbRT.offsetMax = new Vector2(0, -120);
+        tbRT.offsetMin = new Vector2(0, -180 - 36); tbRT.offsetMax = new Vector2(0, -180);
 
         tabButtons = new Button[TabLabels.Length];
-        tabGlows = new Image[TabLabels.Length];
-        float tabW = 120f, gap = 10f;
+        float tabW = 110f, gap = 12f;
         float totalW = TabLabels.Length * tabW + (TabLabels.Length - 1) * gap;
         float sx = -totalW / 2f + tabW / 2f;
 
         for (int i = 0; i < TabLabels.Length; i++)
         {
             int idx = i;
-            var tab = Rect("Tab" + i, tabBar);
-            var tabRT = tab.GetComponent<RectTransform>();
-            tabRT.anchorMin = tabRT.anchorMax = new Vector2(.5f, .5f);
-            tabRT.anchoredPosition = new Vector2(sx + i * (tabW + gap), 0);
-            tabRT.sizeDelta = new Vector2(tabW, 36f);
-
-            var tabImg = tab.AddComponent<Image>();
-            tabImg.sprite = roundedSprite;
-            tabImg.type = Image.Type.Sliced;
-
-            var outline = tab.AddComponent<Outline>();
-            outline.effectDistance = new Vector2(1, -1);
-
-            // Pre-create the glow behind each tab
-            tabGlows[i] = AddGlow(tab, Color.clear, new Vector2(15, 15));
-
-            var lbl = TMP("L", tab, TabLabels[i], 12, Color.white, FontStyles.Bold, TextAlignmentOptions.Center);
-            Fill(lbl);
-
-            var btn = tab.AddComponent<Button>(); btn.targetGraphic = tabImg;
-            btn.onClick.AddListener(() => { clearPending = false; SelectTab(idx); });
-            tabButtons[i] = btn;
+            var tabBtn = OutlineBtn(TabLabels[i], BORDER_DIM, DIM_TEXT, ROW_BG_DEFAULT, tabBar, new Vector2(sx + i * (tabW + gap), 0), new Vector2(tabW, 36f), () => { SelectTab(idx); });
+            tabButtons[i] = tabBtn;
         }
 
-        // ── COLUMNS HEADERS ──
+        // --- COLUMNS HEADERS ---
         var colHeader = Rect("ColHeaders", canvas);
         var chRT = colHeader.GetComponent<RectTransform>();
         chRT.anchorMin = new Vector2(.5f, 1f); chRT.anchorMax = new Vector2(.5f, 1f);
-        chRT.anchoredPosition = new Vector2(0, -(120f + 60f + 20f));
+        chRT.anchoredPosition = new Vector2(0, -(180f + 50f + 10f));
         chRT.sizeDelta = new Vector2(ROW_W, 30f);
-        PlaceRow(colHeader, null, MAGENTA, 14, FontStyles.Bold);
 
-        // ── ROW CONTAINER ──
-        rowContainer = Rect("Rows", canvas);
+        Color[] headerColors = new Color[6];
+        for (int i = 0; i < 6; i++) headerColors[i] = CYAN_HEADER;
+        PlaceRow(colHeader, null, headerColors, 11, FontStyles.Bold);
+
+        // --- SCROLL VIEW ---
+        var svObj = Rect("ScrollView", canvas);
+        var svRT = svObj.GetComponent<RectTransform>();
+        svRT.anchorMin = new Vector2(.5f, 0f); svRT.anchorMax = new Vector2(.5f, 1f);
+        svRT.sizeDelta = new Vector2(ROW_W + 20f, 0f);
+        svRT.offsetMin = new Vector2(-(ROW_W + 20f) / 2f, 40f);
+        svRT.offsetMax = new Vector2((ROW_W + 20f) / 2f, -250f);
+
+        scrollRect = svObj.AddComponent<ScrollRect>();
+        scrollRect.horizontal = false;
+        scrollRect.vertical = true;
+        scrollRect.scrollSensitivity = 45f;
+        scrollRect.movementType = ScrollRect.MovementType.Elastic;
+        scrollRect.inertia = true;
+        scrollRect.decelerationRate = 0.135f;
+
+        var viewport = Rect("Viewport", svObj);
+        var vpRT = viewport.GetComponent<RectTransform>();
+        vpRT.anchorMin = Vector2.zero; vpRT.anchorMax = Vector2.one;
+        vpRT.offsetMin = vpRT.offsetMax = Vector2.zero;
+
+        var vpImg = viewport.AddComponent<Image>();
+        vpImg.color = new Color(0, 0, 0, 0.01f);
+        var mask = viewport.AddComponent<Mask>();
+        mask.showMaskGraphic = false;
+
+        // Content Container
+        rowContainer = Rect("Content", viewport);
         var rcRT = rowContainer.GetComponent<RectTransform>();
-        rcRT.anchorMin = new Vector2(.5f, 0f); rcRT.anchorMax = new Vector2(.5f, 1f);
-        rcRT.sizeDelta = new Vector2(ROW_W, 0f);
-        rcRT.offsetMin = new Vector2(-ROW_W / 2f, 100f); rcRT.offsetMax = new Vector2(ROW_W / 2f, -220f);
+        rcRT.anchorMin = new Vector2(0, 1); rcRT.anchorMax = new Vector2(1, 1);
+        rcRT.pivot = new Vector2(0.5f, 1f);
+        rcRT.anchoredPosition = Vector2.zero;
 
-        // Add a soft backdrop glow behind the entire list
-        AddGlow(rowContainer, new Color(CYAN.r, CYAN.g, CYAN.b, 0.05f), new Vector2(40, 40));
-
-        // ── PAGINATION ──
-        var pageBar = Rect("PageBar", canvas);
-        var pbRT = pageBar.GetComponent<RectTransform>();
-        pbRT.anchorMin = new Vector2(.5f, 0); pbRT.anchorMax = new Vector2(.5f, 0);
-        pbRT.anchoredPosition = new Vector2(0, 50f);
-        pbRT.sizeDelta = new Vector2(300f, 40f);
-
-        prevBtn = OutlineBtn("<", BORDER_DIM, CYAN, pageBar, new Vector2(-110, 0), new Vector2(36, 36), () => { currentPage--; RefreshRows(); });
-        nextBtn = OutlineBtn(">", BORDER_DIM, CYAN, pageBar, new Vector2(110, 0), new Vector2(36, 36), () => { currentPage++; RefreshRows(); });
-
-        var pgLbl = TMP("PgLbl", pageBar, "PAGE 01 / 01", 12, CYAN, FontStyles.Bold, TextAlignmentOptions.Center);
-        SetAP(pgLbl, new Vector2(0, 0), new Vector2(.5f, .5f), new Vector2(150, 30));
-        pageLabel = pgLbl.GetComponent<TextMeshProUGUI>();
+        scrollRect.viewport = vpRT;
+        scrollRect.content = rcRT;
     }
 
     void SelectTab(int idx)
     {
         currentTab = idx;
-        currentPage = 0;
 
         for (int i = 0; i < tabButtons.Length; i++)
         {
-            var img = tabButtons[i].GetComponent<Image>();
-            var outline = tabButtons[i].GetComponent<Outline>();
-            var txt = tabButtons[i].GetComponentInChildren<TextMeshProUGUI>();
+            var btnGo = tabButtons[i].gameObject;
+            var fillImg = btnGo.GetComponent<Image>();
+            var outlineImg = btnGo.transform.Find("Border").GetComponent<Image>();
+            var txt = btnGo.GetComponentInChildren<TextMeshProUGUI>();
 
             if (i == currentTab)
             {
-                img.color = new Color(CYAN.r, CYAN.g, CYAN.b, 0.15f);
-                outline.effectColor = CYAN;
-                txt.color = Color.white;
-                
-                // Light up the glow behind the active tab!
-                tabGlows[i].color = new Color(CYAN.r, CYAN.g, CYAN.b, 0.4f);
+                fillImg.color = TAB_ACTIVE_BG;
+                outlineImg.color = CYAN_ACCENT;
+                txt.color = Color.white * GLOW;
             }
             else
             {
-                img.color = ROW_BG;
-                outline.effectColor = BORDER_DIM;
+                fillImg.color = ROW_BG_DEFAULT;
+                outlineImg.color = BORDER_DIM;
                 txt.color = DIM_TEXT;
-                
-                // Turn off glow for inactive tabs
-                tabGlows[i].color = Color.clear;
             }
         }
 
         string filter = TabFilters[currentTab];
         displayList = filter == null ? LeaderboardManager.Instance.GetAll() : LeaderboardManager.Instance.GetForMode(filter);
+
+        scrollRect.verticalNormalizedPosition = 1f;
         RefreshRows();
+    }
+
+    Color GetModeColor(string mode)
+    {
+        if (mode == "EASY") return EASY_GREEN;
+        if (mode == "MEDIUM") return MED_YELLOW;
+        if (mode == "HARD") return HARD_ORANGE;
+        if (mode == "ENDLESS") return ENDLESS_PINK;
+        return DIM_TEXT;
+    }
+
+    string GetOrdinal(int num)
+    {
+        if (num <= 0) return num.ToString();
+        switch (num % 100) { case 11: case 12: case 13: return num + "TH"; }
+        switch (num % 10)
+        {
+            case 1: return num + "ST";
+            case 2: return num + "ND";
+            case 3: return num + "RD";
+            default: return num + "TH";
+        }
     }
 
     void RefreshRows()
@@ -279,98 +318,123 @@ public class LeaderboardScene : MonoBehaviour
         foreach (Transform c in rowContainer.transform) Destroy(c.gameObject);
 
         int total = displayList.Count;
-        int pages = Mathf.Max(1, Mathf.CeilToInt((float)total / PAGE_SIZE));
-        currentPage = Mathf.Clamp(currentPage, 0, pages - 1);
-        int start = currentPage * PAGE_SIZE;
+        int rowsToDisplay = Mathf.Min(total, 50);
 
-        int rowsToDisplay = Mathf.Max(4, Mathf.Min(PAGE_SIZE, total - start));
+        float contentHeight = rowsToDisplay * (ROW_H + ROW_GAP) + ROW_GAP;
+        rowContainer.GetComponent<RectTransform>().sizeDelta = new Vector2(0, contentHeight);
+
+        if (rowsToDisplay == 0)
+        {
+            rowContainer.GetComponent<RectTransform>().sizeDelta = new Vector2(0, ROW_H + ROW_GAP);
+            CreateRow(1, default, false, 0);
+            return;
+        }
 
         for (int i = 0; i < rowsToDisplay; i++)
         {
-            int rank = start + i + 1;
-            bool hasData = (start + i) < total;
-            var e = hasData ? displayList[start + i] : default;
-
-            float y = -(i * (ROW_H + ROW_GAP)) - ROW_H * 0.5f;
-
-            var row = Rect("Row" + rank, rowContainer);
-            var rowRT = row.GetComponent<RectTransform>();
-            rowRT.anchorMin = rowRT.anchorMax = new Vector2(.5f, 1f);
-            rowRT.anchoredPosition = new Vector2(0, y);
-            rowRT.sizeDelta = new Vector2(ROW_W, ROW_H);
-
-            var img = row.AddComponent<Image>();
-            img.sprite = roundedSprite;
-            img.type = Image.Type.Sliced;
-            img.color = ROW_BG; 
-            
-            var outline = row.AddComponent<Outline>();
-            outline.effectDistance = new Vector2(1, -1);
-            outline.effectColor = BORDER_DIM;
-
-            Color textColor = hasData ? CYAN : DIM_TEXT;
-            FontStyles fs = hasData ? FontStyles.Bold : FontStyles.Normal;
-
-            // --- RANK GLOWS ---
-            if (hasData)
-            {
-                if (rank == 1) 
-                {
-                    outline.effectColor = GOLD_BORDER;
-                    AddGlow(row, new Color(GOLD_BORDER.r, GOLD_BORDER.g, GOLD_BORDER.b, 0.4f), new Vector2(15, 15));
-                }
-                else if (rank == 2) 
-                {
-                    outline.effectColor = CYAN;
-                    AddGlow(row, new Color(CYAN.r, CYAN.g, CYAN.b, 0.25f), new Vector2(15, 15));
-                }
-            }
-
-            string[] vals;
-            if (hasData)
-            {
-                vals = new string[] {
-                    rank <= 4 ? (rank==1?"1ST":rank==2?"2ND":rank==3?"3RD":"4TH") : rank.ToString(),
-                    e.name,
-                    e.score.ToString("N0"),
-                    e.accuracy,
-                    e.mode.ToUpper(),
-                    string.IsNullOrEmpty(e.date) ? "-" : e.date,
-                };
-            }
-            else
-            {
-                vals = new string[] {
-                    rank <= 4 ? (rank==1?"1ST":rank==2?"2ND":rank==3?"3RD":"4TH") : rank.ToString(),
-                    "---", "---", "---", "---", "---"
-                };
-            }
-
-            PlaceRow(row, vals, textColor, 13, fs, rank);
+            CreateRow(i + 1, displayList[i], true, i);
         }
-
-        pageLabel.text = $"PAGE {currentPage + 1:D2} / {pages:D2}";
-        prevBtn.interactable = currentPage > 0;
-        nextBtn.interactable = currentPage < pages - 1;
     }
 
-    void PlaceRow(GameObject parent, string[] vals, Color defaultCol, int sz, FontStyles fs, int rank = -1)
+    void CreateRow(int rank, LeaderboardEntry e, bool hasData, int index)
+    {
+        float y = -(index * (ROW_H + ROW_GAP)) - (ROW_H * 0.5f) - ROW_GAP;
+
+        var row = Rect("Row" + rank, rowContainer);
+        var rowRT = row.GetComponent<RectTransform>();
+        rowRT.anchorMin = new Vector2(0.5f, 1f);
+        rowRT.anchorMax = new Vector2(0.5f, 1f);
+        rowRT.pivot = new Vector2(0.5f, 0.5f);
+        rowRT.anchoredPosition = new Vector2(0, y);
+        rowRT.sizeDelta = new Vector2(ROW_W, ROW_H);
+
+        var anim = row.AddComponent<RowAnimator>();
+        anim.delay = index * 0.05f;
+
+        var fillImg = row.AddComponent<Image>();
+        fillImg.sprite = fillSprite;
+        fillImg.type = Image.Type.Sliced;
+
+        var borderObj = Rect("Border", row);
+        Fill(borderObj);
+        var outlineImg = borderObj.AddComponent<Image>();
+        outlineImg.sprite = borderSprite;
+        outlineImg.type = Image.Type.Sliced;
+
+        Color[] colColors = new Color[6];
+
+        if (!hasData)
+        {
+            fillImg.color = ROW_BG_DEFAULT;
+            outlineImg.color = BORDER_DIM;
+            for (int c = 0; c < 6; c++) colColors[c] = DIM_TEXT;
+            colColors[0] = Color.white;
+        }
+        else if (rank == 1)
+        {
+            fillImg.color = GOLD_BG;
+            outlineImg.color = GOLD_OUTLINE;
+            colColors[0] = GOLD_TEXT;
+            colColors[1] = Color.white * GLOW;
+            colColors[2] = GOLD_TEXT;
+            colColors[3] = Color.white * GLOW;
+            colColors[4] = GetModeColor(e.mode.ToUpper());
+            colColors[5] = GOLD_TEXT;
+        }
+        else if (rank == 2)
+        {
+            fillImg.color = CYAN_BG;
+            outlineImg.color = CYAN_OUTLINE;
+            colColors[0] = CYAN_ACCENT;
+            colColors[1] = Color.white * GLOW;
+            colColors[2] = CYAN_ACCENT;
+            colColors[3] = Color.white * GLOW;
+            colColors[4] = GetModeColor(e.mode.ToUpper());
+            colColors[5] = DIM_TEXT;
+        }
+        else
+        {
+            fillImg.color = ROW_BG_DEFAULT;
+            outlineImg.color = BORDER_DIM;
+            colColors[0] = Color.white;
+            colColors[1] = Color.white;
+            colColors[2] = CYAN_ACCENT;
+            colColors[3] = DIM_TEXT;
+            colColors[4] = GetModeColor(e.mode.ToUpper());
+            colColors[5] = DIM_TEXT;
+        }
+
+        string[] vals;
+        if (hasData)
+        {
+            vals = new string[] {
+                GetOrdinal(rank),
+                e.name,
+                e.score.ToString("N0"),
+                e.accuracy,
+                e.mode.ToUpper(),
+                string.IsNullOrEmpty(e.date) ? "-" : e.date,
+            };
+        }
+        else
+        {
+            vals = new string[] { "1ST", "---", "---", "---", "---", "---" };
+        }
+
+        PlaceRow(row, vals, colColors, 14, hasData ? FontStyles.Bold : FontStyles.Normal);
+    }
+
+    void PlaceRow(GameObject parent, string[] vals, Color[] cols, int sz, FontStyles fs)
     {
         for (int i = 0; i < Cols.Length; i++)
         {
             string txt = vals != null && i < vals.Length ? vals[i] : Cols[i].h;
-            
-            Color col = (vals == null) ? MAGENTA : defaultCol;
-            
-            // Highlight the #1 Player text in Gold!
-            if (rank == 1 && vals != null) col = GOLD_TEXT; 
-
-            var go = TMP("C" + i, parent, txt, sz, col, fs, Cols[i].a);
+            var go = TMP("C" + i, parent, txt, sz, cols[i], fs, Cols[i].a);
             SetAP(go, new Vector2(Cols[i].x, 0), new Vector2(.5f, .5f), new Vector2(Cols[i].w, ROW_H));
         }
     }
 
-    Button OutlineBtn(string label, Color outlineCol, Color textCol, GameObject parent, Vector2 pos, Vector2 size, UnityEngine.Events.UnityAction cb)
+    Button OutlineBtn(string label, Color outlineCol, Color textCol, Color bgCol, GameObject parent, Vector2 pos, Vector2 size, UnityEngine.Events.UnityAction cb)
     {
         var go = Rect("Btn_" + label, parent);
         var rt = go.GetComponent<RectTransform>();
@@ -378,17 +442,20 @@ public class LeaderboardScene : MonoBehaviour
         rt.anchoredPosition = pos; rt.sizeDelta = size;
 
         var img = go.AddComponent<Image>();
-        img.sprite = roundedSprite;
+        img.sprite = fillSprite;
         img.type = Image.Type.Sliced;
-        img.color = ROW_BG;
+        img.color = bgCol;
 
-        var outline = go.AddComponent<Outline>();
-        outline.effectColor = outlineCol;
-        outline.effectDistance = new Vector2(1, -1);
+        var borderObj = Rect("Border", go);
+        Fill(borderObj);
+        var outlineImg = borderObj.AddComponent<Image>();
+        outlineImg.sprite = borderSprite;
+        outlineImg.type = Image.Type.Sliced;
+        outlineImg.color = outlineCol;
 
         if (!string.IsNullOrEmpty(label))
         {
-            var lbl = TMP("L", go, label, 11, textCol, FontStyles.Bold, TextAlignmentOptions.Center);
+            var lbl = TMP("L", go, label, 12, textCol, FontStyles.Bold, TextAlignmentOptions.Center);
             Fill(lbl);
         }
 
@@ -397,28 +464,11 @@ public class LeaderboardScene : MonoBehaviour
         return btn;
     }
 
-    void TryClear()
+    void ClearLeaderboard()
     {
-        if (!clearPending)
-        {
-            clearPending = true;
-            foreach (var b in canvas.GetComponentsInChildren<Button>())
-            {
-                var t = b.GetComponentInChildren<TextMeshProUGUI>();
-                if (t && t.text == "") t.text = "SURE?";
-            }
-        }
-        else
-        {
-            clearPending = false;
-            LeaderboardManager.Instance?.ClearAll();
-            SelectTab(currentTab);
-            foreach (var b in canvas.GetComponentsInChildren<Button>())
-            {
-                var t = b.GetComponentInChildren<TextMeshProUGUI>();
-                if (t && t.text == "SURE?") t.text = "";
-            }
-        }
+        displayList.Clear();
+        Debug.Log("CLEAR ALL clicked!");
+        RefreshRows();
     }
 
     void GoBack()
@@ -465,5 +515,55 @@ public class LeaderboardScene : MonoBehaviour
         var rt = go.GetComponent<RectTransform>();
         rt.anchorMin = rt.anchorMax = anchor;
         rt.anchoredPosition = pos; rt.sizeDelta = size;
+    }
+}
+
+public class RowAnimator : MonoBehaviour
+{
+    public float delay = 0f;
+    CanvasGroup cg;
+    Vector2 targetPos;
+    RectTransform rt;
+    float t = 0;
+
+    void Start()
+    {
+        cg = gameObject.AddComponent<CanvasGroup>();
+        cg.alpha = 0f;
+        rt = GetComponent<RectTransform>();
+        targetPos = rt.anchoredPosition;
+        rt.anchoredPosition = targetPos + new Vector2(150f, 0f);
+    }
+
+    void Update()
+    {
+        if (delay > 0) { delay -= Time.deltaTime; return; }
+
+        t += Time.deltaTime * 6f;
+
+        float eased = 1f - Mathf.Pow(2f, -10f * t);
+
+        cg.alpha = Mathf.Lerp(0f, 1f, t * 2f);
+        rt.anchoredPosition = Vector2.Lerp(targetPos + new Vector2(150f, 0f), targetPos, eased);
+
+        if (t >= 1f)
+        {
+            rt.anchoredPosition = targetPos;
+            cg.alpha = 1f;
+            Destroy(this);
+        }
+    }
+}
+
+public class UIFloater : MonoBehaviour
+{
+    public float speed;
+    RectTransform rt;
+    void Start() { rt = GetComponent<RectTransform>(); }
+    void Update()
+    {
+        rt.anchoredPosition += new Vector2(speed, speed) * Time.deltaTime;
+        if (rt.anchoredPosition.x > 800) rt.anchoredPosition = new Vector2(-800, rt.anchoredPosition.y);
+        if (rt.anchoredPosition.y > 500) rt.anchoredPosition = new Vector2(rt.anchoredPosition.x, -500);
     }
 }

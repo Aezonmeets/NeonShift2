@@ -3,6 +3,8 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using System.Collections;
+using System.Collections.Generic;
 
 public class MainMenuManager : MonoBehaviour
 {
@@ -43,18 +45,26 @@ public class MainMenuManager : MonoBehaviour
     GameObject settingsPanel;
     GameObject nameEntryPanel;
     GameObject songSelectionPanel;
+    GameObject tutorialPanel;
     GameObject songListContainer;
     TMP_InputField nameInput;
     int pendingModeIndex = 0;
 
+    // --- TUTORIAL VARIABLES ---
+    TextMeshProUGUI tutInstrTxt;
+    RectTransform tutTrackContainer;
+    RectTransform tutTile;
+    Image tutTileImg;
+    Image[] tutKeyImgs = new Image[4];
+    Coroutine activeTutorial;
+
     void Start()
     {
-        // Wrapped in a null check just in case the camera is missing on scene reload
         if (Camera.main != null)
         {
             Camera.main.backgroundColor = DARK_BG;
             Camera.main.clearFlags = CameraClearFlags.SolidColor;
-            Camera.main.allowHDR = true; // Added this to ensure the camera allows high-intensity colors
+            Camera.main.allowHDR = true;
         }
 
         music = gameObject.AddComponent<AudioSource>();
@@ -77,12 +87,10 @@ public class MainMenuManager : MonoBehaviour
         Build();
     }
 
-    // Helper method to push colors into HDR range for Bloom
     Color GetHDR(Color c) => new Color(c.r * glowIntensity, c.g * glowIntensity, c.b * glowIntensity, 1f);
 
     void Build()
     {
-        // --- FIX: Cleanup old UI on scene load to prevent invisible conflicts ---
         if (Application.isPlaying)
         {
             GameObject oldCanvas = GameObject.Find("Canvas");
@@ -99,12 +107,10 @@ public class MainMenuManager : MonoBehaviour
         var cgo = new GameObject("Canvas");
         var cv = cgo.AddComponent<Canvas>();
 
-        // --- THE NEON GLOW FIX: Render through the Camera to catch Post-Processing! ---
         cv.renderMode = RenderMode.ScreenSpaceCamera;
         cv.worldCamera = Camera.main;
         cv.planeDistance = 10f;
         cv.sortingOrder = 10;
-        // -----------------------------------------------------------------------------
 
         var sc = cgo.AddComponent<CanvasScaler>();
         sc.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -112,19 +118,16 @@ public class MainMenuManager : MonoBehaviour
         sc.matchWidthOrHeight = 0.5f;
         cgo.AddComponent<GraphicRaycaster>();
 
-        // ── DARK BACKGROUND ──
         var bg = new GameObject("BG"); bg.transform.SetParent(cgo.transform, false);
         var bgRT = bg.AddComponent<RectTransform>();
         bgRT.anchorMin = Vector2.zero; bgRT.anchorMax = Vector2.one;
         bgRT.offsetMin = bgRT.offsetMax = Vector2.zero;
         bg.AddComponent<Image>().color = DARK_BG;
 
-        // ── TOP NAV BAR ──
         HBar(cgo, new Color(CYAN.r, CYAN.g, CYAN.b, 0.3f), A(0, 1), A(1, 1), 0, -45, 1f);
         var topLogo = T(cgo, "↺ NEON SHIFT", 16, new Vector2(30, -22), A(0, 1), A(0, 1), TextAlignmentOptions.Left);
         topLogo.color = CYAN; topLogo.fontStyle = FontStyles.Bold;
 
-        // ── SETTINGS BUTTON ──
         var iconBtn = new GameObject("TopIcon_Settings");
         iconBtn.transform.SetParent(cgo.transform, false);
         var irt = iconBtn.AddComponent<RectTransform>();
@@ -155,7 +158,6 @@ public class MainMenuManager : MonoBehaviour
             if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Hide();
         });
 
-        // ── TITLE ──
         float titleY = 200f;
 
         var titleParent = new GameObject("TitleGroup");
@@ -165,7 +167,6 @@ public class MainMenuManager : MonoBehaviour
         tpRt.anchoredPosition = new Vector2(0, titleY);
         titleParent.AddComponent<NeonBreathingAnim>();
 
-        // Applying GetHDR here to make the title pop!
         var t1 = T(titleParent, "SHIFT", 95, new Vector2(-160, 0), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Right);
         t1.color = GetHDR(CYAN); t1.fontStyle = FontStyles.Bold;
 
@@ -176,7 +177,6 @@ public class MainMenuManager : MonoBehaviour
         sub.color = CYAN; sub.fontStyle = FontStyles.Bold;
         sub.characterSpacing = 5f;
 
-        // ── BUTTONS ──
         Sprite[] modeSprites = { easyIcon, mediumIcon, hardIcon, endlessIcon };
         float startY = 40f, gap = -55f;
 
@@ -186,7 +186,6 @@ public class MainMenuManager : MonoBehaviour
             ModeButton(cgo, ModeLabels[i], modeSprites[i], ModeBorderColors[i],
                 new Vector2(0, startY + gap * i), () => {
                     pendingModeIndex = mi;
-
                     PopulateSongList(mi);
                     if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Show();
                     if (settingsPanel != null) settingsPanel.GetComponent<NeonPanelAnim>().Hide();
@@ -195,20 +194,426 @@ public class MainMenuManager : MonoBehaviour
         }
 
         ModeButton(cgo, "LEADERBOARD", null, new Color(0.4f, 0.7f, 1f),
-            new Vector2(0, startY + gap * 4 - 10), () => LeaderboardManager.OpenLeaderboardScene("MainMenu"));
+            new Vector2(0, startY + gap * 4), () => LeaderboardManager.OpenLeaderboardScene("MainMenu"));
 
         ModeButton(cgo, "QUIT GAME", quitIcon, new Color(0.4f, 0.45f, 0.55f),
-            new Vector2(0, startY + gap * 5 - 10), () => Application.Quit());
+            new Vector2(0, startY + gap * 5), () => Application.Quit());
 
-        // ── PANELS ──
+        tutorialPanel = CreateTutorialPanel(cgo);
         settingsPanel = CreateSettingsPanel(cgo);
         nameEntryPanel = CreateNameEntryPanel(cgo);
         songSelectionPanel = CreateSongSelectionPanel(cgo);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // ── SONG SELECTION PANEL
+    // ── INTERACTIVE TUTORIAL LOGIC 
     // ──────────────────────────────────────────────────────────────────────────
+    GameObject CreateTutorialPanel(GameObject canvasGo)
+    {
+        var panel = new GameObject("TutorialPanel");
+        panel.transform.SetParent(canvasGo.transform, false);
+        var prt = panel.AddComponent<RectTransform>();
+        prt.anchorMin = Vector2.zero; prt.anchorMax = Vector2.one;
+        prt.offsetMin = prt.offsetMax = Vector2.zero;
+
+        var img = panel.AddComponent<Image>();
+        img.color = new Color(0.02f, 0.03f, 0.05f, 0.98f);
+        panel.AddComponent<GraphicRaycaster>();
+
+        tutInstrTxt = T(panel, "WELCOME", 36, new Vector2(0, 250), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center);
+        tutInstrTxt.color = GetHDR(CYAN);
+
+        var tContainer = new GameObject("TrackContainer");
+        tContainer.transform.SetParent(panel.transform, false);
+        tutTrackContainer = tContainer.AddComponent<RectTransform>();
+        tutTrackContainer.anchorMin = tutTrackContainer.anchorMax = A(0.5f, 0.5f);
+        tutTrackContainer.anchoredPosition = Vector2.zero;
+        tutTrackContainer.sizeDelta = new Vector2(600, 600);
+
+        float[] laneX = { -120f, -40f, 40f, 120f };
+        for (int i = 0; i < 5; i++)
+        {
+            float xPos = -160f + (i * 80f);
+            var line = new GameObject("Line_" + i);
+            line.transform.SetParent(tutTrackContainer, false);
+            var rt = line.AddComponent<RectTransform>();
+            rt.anchorMin = rt.anchorMax = A(0.5f, 0.5f);
+            rt.anchoredPosition = new Vector2(xPos, 0);
+            rt.sizeDelta = new Vector2(2, 500);
+            line.AddComponent<Image>().color = new Color(1, 1, 1, 0.1f);
+        }
+
+        var hitLine = new GameObject("HitLine");
+        hitLine.transform.SetParent(tutTrackContainer, false);
+        var hlRT = hitLine.AddComponent<RectTransform>();
+        hlRT.anchorMin = hlRT.anchorMax = A(0.5f, 0.5f);
+        hlRT.anchoredPosition = new Vector2(0, -100);
+        hlRT.sizeDelta = new Vector2(340, 4);
+        hitLine.AddComponent<Image>().color = new Color(1, 1, 1, 0.6f);
+
+        string[] keyNames = { "D", "F", "J", "K" };
+        Color[] keyColors = {
+            new Color(1.0f, 0.05f, 0.6f),
+            new Color(1.0f, 0.95f, 0.0f),
+            new Color(0.2f, 1.0f, 0.1f),
+            new Color(0.0f, 0.85f, 1.0f),
+        };
+
+        for (int i = 0; i < 4; i++)
+        {
+            var keyObj = new GameObject("Key_" + i);
+            keyObj.transform.SetParent(tutTrackContainer, false);
+            var rt = keyObj.AddComponent<RectTransform>();
+            rt.anchorMin = rt.anchorMax = A(0.5f, 0.5f);
+            rt.anchoredPosition = new Vector2(laneX[i], -150);
+            rt.sizeDelta = new Vector2(60, 40);
+
+            tutKeyImgs[i] = keyObj.AddComponent<Image>();
+            tutKeyImgs[i].color = new Color(0.1f, 0.1f, 0.2f, 0.8f);
+
+            var O = keyObj.AddComponent<Outline>();
+            O.effectColor = keyColors[i]; O.effectDistance = new Vector2(2, -2);
+
+            var kt = T(keyObj, keyNames[i], 24, Vector2.zero, A(0, 0), A(1, 1), TextAlignmentOptions.Center);
+            kt.rectTransform.offsetMin = kt.rectTransform.offsetMax = Vector2.zero;
+        }
+
+        var tObj = new GameObject("TutTile");
+        tObj.transform.SetParent(tutTrackContainer, false);
+        tutTile = tObj.AddComponent<RectTransform>();
+        tutTile.anchorMin = tutTile.anchorMax = A(0.5f, 0.5f);
+        tutTile.sizeDelta = new Vector2(70, 20);
+        tutTileImg = tObj.AddComponent<Image>();
+        tObj.SetActive(false);
+
+        ModeButton(panel, "SKIP TUTORIAL", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -320), () => {
+            if (activeTutorial != null) StopCoroutine(activeTutorial);
+
+            // CLEANUP: Destroys any leftover tiles if the user skips during the barrage!
+            foreach (Transform child in tutTrackContainer)
+            {
+                if (child.name == "TutTile(Clone)") Destroy(child.gameObject);
+            }
+            panel.SetActive(false);
+        });
+
+        panel.SetActive(false);
+        return panel;
+    }
+
+    IEnumerator RunInteractiveTutorial()
+    {
+        tutTile.gameObject.SetActive(false);
+        tutTrackContainer.localRotation = Quaternion.identity;
+        tutTile.sizeDelta = new Vector2(70, 20);
+
+        Color pink = new Color(1.0f, 0.05f, 0.6f);
+        Color yellow = new Color(1.0f, 0.95f, 0.0f);
+        Color blue = new Color(0.0f, 0.85f, 1.0f);
+
+        // --- PHASE 1: INTRO ---
+        tutInstrTxt.color = GetHDR(CYAN);
+        tutInstrTxt.text = "WELCOME TO NEON SHIFT.\n<size=24>Let's calibrate your reflexes.</size>";
+        yield return new WaitForSeconds(2.5f);
+
+        // --- PHASE 2: STATIONARY HIT ---
+        tutInstrTxt.text = "Notes fall down the 4 lanes.\n<color=#ff1aff>Press [D]</color> when it hits the line.";
+        tutTile.gameObject.SetActive(true);
+        tutTile.anchoredPosition = new Vector2(-120, 200);
+        tutTileImg.color = GetHDR(pink);
+
+        while (tutTile.anchoredPosition.y > -100f)
+        {
+            tutTile.anchoredPosition += Vector2.down * 300f * Time.deltaTime;
+            yield return null;
+        }
+        tutTile.anchoredPosition = new Vector2(-120, -100);
+
+        bool hit = false;
+        while (!hit)
+        {
+            if (Input.GetKeyDown(KeyCode.D))
+            {
+                hit = true;
+                if (sfx != null) sfx.PlayOneShot(clickSound);
+                StartCoroutine(FlashTutorialKey(0, pink));
+            }
+            yield return null;
+        }
+        tutTile.gameObject.SetActive(false);
+        tutInstrTxt.text = "<color=#1aff99>PERFECT!</color>";
+        yield return new WaitForSeconds(1.5f);
+
+        // --- PHASE 3: LONG HOLD TILE ---
+        tutInstrTxt.text = "Some notes are long.\n<color=#ffff00>Hold [F]</color> to drain it completely.";
+        tutTile.gameObject.SetActive(true);
+        tutTile.sizeDelta = new Vector2(70, 200);
+        tutTileImg.color = GetHDR(yellow);
+        tutTile.anchoredPosition = new Vector2(-40, 250);
+
+        while (tutTile.anchoredPosition.y > 0f)
+        {
+            tutTile.anchoredPosition += Vector2.down * 300f * Time.deltaTime;
+            yield return null;
+        }
+
+        float holdTimer = 1.5f;
+        while (holdTimer > 0)
+        {
+            if (Input.GetKey(KeyCode.F))
+            {
+                holdTimer -= Time.deltaTime;
+                float p = Mathf.Max(0, holdTimer / 1.5f);
+                tutTile.sizeDelta = new Vector2(70, 200 * p);
+                tutTile.anchoredPosition = new Vector2(-40, -100 + ((200 * p) / 2));
+                tutKeyImgs[1].color = GetHDR(yellow);
+            }
+            else
+            {
+                tutKeyImgs[1].color = new Color(0.1f, 0.1f, 0.2f, 0.8f);
+                tutInstrTxt.text = "<color=#ffff00>DON'T LET GO!</color>\nHold [F] to drain.";
+            }
+            yield return null;
+        }
+        tutKeyImgs[1].color = new Color(0.1f, 0.1f, 0.2f, 0.8f);
+        tutTile.gameObject.SetActive(false);
+        tutTile.sizeDelta = new Vector2(70, 20);
+        tutInstrTxt.text = "<color=#1aff99>GREAT HOLD!</color>";
+        yield return new WaitForSeconds(1.5f);
+
+        // --- PHASE 4: TRACK ROTATION ---
+        tutInstrTxt.text = "<color=#ff3355>WARNING:</color> The track will rotate to the music!";
+        yield return new WaitForSeconds(2f);
+
+        float rotT = 0;
+        while (rotT < 1f)
+        {
+            rotT += Time.deltaTime * 2f;
+            tutTrackContainer.localRotation = Quaternion.Euler(0, 0, Mathf.Lerp(0, 90f, rotT));
+            yield return null;
+        }
+        tutInstrTxt.text = "Your keys still map exactly to the screen.\n<color=#00d9ff>Press [K]</color> when it drops!";
+
+        bool passedMovingTest = false;
+        while (!passedMovingTest)
+        {
+            tutTile.gameObject.SetActive(true);
+            tutTile.anchoredPosition = new Vector2(120, 200);
+            tutTileImg.color = GetHDR(blue);
+            bool attempted = false;
+
+            while (tutTile.anchoredPosition.y > -250f)
+            {
+                tutTile.anchoredPosition += Vector2.down * 250f * Time.deltaTime;
+
+                if (!attempted && Input.GetKeyDown(KeyCode.K))
+                {
+                    attempted = true;
+                    StartCoroutine(FlashTutorialKey(3, blue));
+
+                    float diff = Mathf.Abs(tutTile.anchoredPosition.y - (-100f));
+                    if (diff < 35f)
+                    {
+                        passedMovingTest = true;
+                        if (sfx != null) sfx.PlayOneShot(clickSound);
+                        tutTile.gameObject.SetActive(false);
+                        tutInstrTxt.text = "<color=#1aff99>NICE ADJUSTMENT!</color>";
+                        break;
+                    }
+                    else
+                    {
+                        tutInstrTxt.text = "<color=#ff3355>MISS!</color>\nWait for the line.";
+                    }
+                }
+                yield return null;
+            }
+
+            if (!passedMovingTest)
+            {
+                if (!attempted) tutInstrTxt.text = "<color=#ff3355>MISSED IT!</color>\nTry again.";
+                tutTile.gameObject.SetActive(false);
+                yield return new WaitForSeconds(1.5f);
+            }
+        }
+        yield return new WaitForSeconds(1.5f);
+
+        rotT = 0;
+        while (rotT < 1f)
+        {
+            rotT += Time.deltaTime * 2f;
+            tutTrackContainer.localRotation = Quaternion.Euler(0, 0, Mathf.Lerp(90f, 0f, rotT));
+            yield return null;
+        }
+
+        // --- PHASE 5: THE OVERDRIVE BARRAGE ---
+        tutInstrTxt.text = "Maxing out Fever triggers <color=#ff1aff>OVERDRIVE</color>.";
+        yield return new WaitForSeconds(2.5f);
+
+        float odTimer = 3f;
+        while (odTimer > 0)
+        {
+            odTimer -= Time.deltaTime;
+            tutInstrTxt.color = GetHDR(Color.HSVToRGB((Time.time * 3f) % 1f, 1f, 1f));
+            tutInstrTxt.text = "GET READY!";
+            yield return null;
+        }
+
+        tutInstrTxt.text = "MASH ALL KEYS!";
+        float overdriveDuration = 4.0f;
+        float tOverdrive = 0;
+        float spawnTimer = 0;
+
+        float[] tLaneX = { -120f, -40f, 40f, 120f };
+        Color[] tKeyColors = {
+            new Color(1.0f, 0.05f, 0.6f),
+            new Color(1.0f, 0.95f, 0.0f),
+            new Color(0.2f, 1.0f, 0.1f),
+            new Color(0.0f, 0.85f, 1.0f)
+        };
+
+        List<RectTransform> overdriveTiles = new List<RectTransform>();
+
+        // LOCAL FUNCTION: Handles finding and destroying the lowest tile when mashing
+        void ProcessMash(int laneIndex, float laneX, Color color)
+        {
+            if (sfx != null) sfx.PlayOneShot(clickSound);
+            StartCoroutine(FlashTutorialKey(laneIndex, color));
+
+            int hitIdx = -1;
+            float minY = 9999f;
+
+            // Search for the lowest tile in the pressed lane
+            for (int i = 0; i < overdriveTiles.Count; i++)
+            {
+                if (Mathf.Abs(overdriveTiles[i].anchoredPosition.x - laneX) < 5f)
+                {
+                    if (overdriveTiles[i].anchoredPosition.y < minY)
+                    {
+                        minY = overdriveTiles[i].anchoredPosition.y;
+                        hitIdx = i;
+                    }
+                }
+            }
+
+            // If we found a tile and it is somewhat near the bottom (generous mashing area)
+            if (hitIdx != -1 && minY < 150f)
+            {
+                Destroy(overdriveTiles[hitIdx].gameObject);
+                overdriveTiles.RemoveAt(hitIdx);
+            }
+        }
+
+        while (tOverdrive < overdriveDuration)
+        {
+            tOverdrive += Time.deltaTime;
+            tutInstrTxt.color = GetHDR(Color.HSVToRGB((Time.time * 5f) % 1f, 1f, 1f));
+
+            spawnTimer -= Time.deltaTime;
+            if (spawnTimer <= 0)
+            {
+                spawnTimer = 0.12f;
+                GameObject newTileObj = Instantiate(tutTile.gameObject, tutTrackContainer);
+                newTileObj.SetActive(true);
+                RectTransform newTileRT = newTileObj.GetComponent<RectTransform>();
+                int randLane = Random.Range(0, 4);
+                newTileRT.anchoredPosition = new Vector2(tLaneX[randLane], 300);
+                newTileObj.GetComponent<Image>().color = GetHDR(Color.HSVToRGB((Time.time * 2f) % 1f, 1f, 1f));
+                overdriveTiles.Add(newTileRT);
+            }
+
+            // Move the whole wave downwards
+            for (int i = overdriveTiles.Count - 1; i >= 0; i--)
+            {
+                RectTransform rt = overdriveTiles[i];
+                rt.anchoredPosition += Vector2.down * 900f * Time.deltaTime;
+                if (rt.anchoredPosition.y < -250f)
+                {
+                    Destroy(rt.gameObject);
+                    overdriveTiles.RemoveAt(i);
+                }
+            }
+
+            // Hit detection triggering the destroy logic!
+            if (Input.GetKeyDown(KeyCode.D)) ProcessMash(0, tLaneX[0], tKeyColors[0]);
+            if (Input.GetKeyDown(KeyCode.F)) ProcessMash(1, tLaneX[1], tKeyColors[1]);
+            if (Input.GetKeyDown(KeyCode.J)) ProcessMash(2, tLaneX[2], tKeyColors[2]);
+            if (Input.GetKeyDown(KeyCode.K)) ProcessMash(3, tLaneX[3], tKeyColors[3]);
+
+            yield return null;
+        }
+
+        foreach (var rt in overdriveTiles) { if (rt != null) Destroy(rt.gameObject); }
+        overdriveTiles.Clear();
+
+        tutInstrTxt.color = GetHDR(CYAN);
+        tutInstrTxt.text = "You are ready.";
+        yield return new WaitForSeconds(2f);
+
+        tutorialPanel.SetActive(false);
+    }
+
+    IEnumerator FlashTutorialKey(int index, Color glowColor)
+    {
+        tutKeyImgs[index].color = GetHDR(glowColor);
+        yield return new WaitForSeconds(0.15f);
+        tutKeyImgs[index].color = new Color(0.1f, 0.1f, 0.2f, 0.8f);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // ── SETTINGS PANEL 
+    // ──────────────────────────────────────────────────────────────────────────
+    GameObject CreateSettingsPanel(GameObject canvasGo)
+    {
+        var panel = new GameObject("SettingsPanel");
+        panel.transform.SetParent(canvasGo.transform, false);
+        var prt = panel.AddComponent<RectTransform>();
+        prt.anchorMin = prt.anchorMax = A(0.5f, 0.5f);
+        prt.anchoredPosition = Vector2.zero;
+        prt.sizeDelta = new Vector2(450, 480);
+
+        var img = panel.AddComponent<Image>();
+        img.color = new Color(0.05f, 0.07f, 0.11f, 0.98f);
+        var outline = panel.AddComponent<Outline>();
+        outline.effectColor = CYAN;
+        outline.effectDistance = new Vector2(2, -2);
+
+        T(panel, "SETTINGS", 35, new Vector2(0, 180), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center).color = MAGENTA;
+
+        float savedMusic = PlayerPrefs.GetFloat("MusicVolume", 0.55f);
+        CreateSlider(panel, "MUSIC VOLUME", 80, savedMusic, (val) => {
+            PlayerPrefs.SetFloat("MusicVolume", val);
+            if (music != null) music.volume = val;
+        });
+
+        float savedSfx = PlayerPrefs.GetFloat("SFXVolume", 0.8f);
+        CreateSlider(panel, "SFX VOLUME", 0, savedSfx, (val) => {
+            PlayerPrefs.SetFloat("SFXVolume", val);
+            if (sfx != null) sfx.volume = val;
+        });
+
+        ModeButton(panel, "HOW TO PLAY", null, MAGENTA, new Vector2(0, -90), () => {
+            panel.GetComponent<NeonPanelAnim>().Hide();
+            if (tutorialPanel != null)
+            {
+                tutorialPanel.SetActive(true);
+                if (activeTutorial != null) StopCoroutine(activeTutorial);
+                activeTutorial = StartCoroutine(RunInteractiveTutorial());
+            }
+        });
+
+        ModeButton(panel, "CLOSE MENU", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -160), () => {
+            panel.GetComponent<NeonPanelAnim>().Hide();
+        });
+
+        panel.AddComponent<NeonPanelAnim>();
+        return panel;
+    }
+
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // ── STANDARD PANELS (Unchanged)
+    // ──────────────────────────────────────────────────────────────────────────
+
     GameObject CreateSongSelectionPanel(GameObject canvasGo)
     {
         var panel = new GameObject("SongSelectionPanel");
@@ -321,9 +726,6 @@ public class MainMenuManager : MonoBehaviour
         go.AddComponent<NeonButtonJuice>();
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // ── NAME ENTRY PANEL
-    // ──────────────────────────────────────────────────────────────────────────
     GameObject CreateNameEntryPanel(GameObject canvasGo)
     {
         var panel = new GameObject("NameEntryPanel");
@@ -392,46 +794,6 @@ public class MainMenuManager : MonoBehaviour
         ModeButton(panel, "BACK", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -120), () => {
             panel.GetComponent<NeonPanelAnim>().Hide();
             if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Show();
-        });
-
-        panel.AddComponent<NeonPanelAnim>();
-        return panel;
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // ── SETTINGS PANEL 
-    // ──────────────────────────────────────────────────────────────────────────
-    GameObject CreateSettingsPanel(GameObject canvasGo)
-    {
-        var panel = new GameObject("SettingsPanel");
-        panel.transform.SetParent(canvasGo.transform, false);
-        var prt = panel.AddComponent<RectTransform>();
-        prt.anchorMin = prt.anchorMax = A(0.5f, 0.5f);
-        prt.anchoredPosition = Vector2.zero;
-        prt.sizeDelta = new Vector2(450, 400);
-
-        var img = panel.AddComponent<Image>();
-        img.color = new Color(0.05f, 0.07f, 0.11f, 0.98f);
-        var outline = panel.AddComponent<Outline>();
-        outline.effectColor = CYAN;
-        outline.effectDistance = new Vector2(2, -2);
-
-        T(panel, "SETTINGS", 35, new Vector2(0, 140), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center).color = MAGENTA;
-
-        float savedMusic = PlayerPrefs.GetFloat("MusicVolume", 0.55f);
-        CreateSlider(panel, "MUSIC VOLUME", 40, savedMusic, (val) => {
-            PlayerPrefs.SetFloat("MusicVolume", val);
-            if (music != null) music.volume = val;
-        });
-
-        float savedSfx = PlayerPrefs.GetFloat("SFXVolume", 0.8f);
-        CreateSlider(panel, "SFX VOLUME", -40, savedSfx, (val) => {
-            PlayerPrefs.SetFloat("SFXVolume", val);
-            if (sfx != null) sfx.volume = val;
-        });
-
-        ModeButton(panel, "CLOSE MENU", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -140), () => {
-            panel.GetComponent<NeonPanelAnim>().Hide();
         });
 
         panel.AddComponent<NeonPanelAnim>();
@@ -571,22 +933,22 @@ public class MainMenuManager : MonoBehaviour
         return t;
     }
 
+    void AddBorder(GameObject go, Color col, float alpha)
+    {
+        var ov = new GameObject("Border"); ov.transform.SetParent(go.transform, false);
+        var rt = ov.AddComponent<RectTransform>(); rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(-1, -1); rt.offsetMax = new Vector2(1, 1);
+        var img = ov.AddComponent<Image>(); img.color = Color.clear;
+        var O = go.AddComponent<Outline>(); O.effectColor = new Color(col.r, col.g, col.b, alpha); O.effectDistance = new Vector2(2, -2);
+    }
+
     static Vector2 A(float x, float y) => new Vector2(x, y);
 }
-
-// ──────────────────────────────────────────────────────────────────────────
-// ── UI ANIMATION HELPERS 
-// ──────────────────────────────────────────────────────────────────────────
 
 public class NeonButtonJuice : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
 {
     Vector3 targetScale = Vector3.one;
-
-    void Update()
-    {
-        transform.localScale = Vector3.Lerp(transform.localScale, targetScale, Time.deltaTime * 15f);
-    }
-
+    void Update() => transform.localScale = Vector3.Lerp(transform.localScale, targetScale, Time.deltaTime * 15f);
     public void OnPointerEnter(PointerEventData eventData) => targetScale = new Vector3(1.05f, 1.05f, 1f);
     public void OnPointerExit(PointerEventData eventData) => targetScale = Vector3.one;
     public void OnPointerDown(PointerEventData eventData) => targetScale = new Vector3(0.95f, 0.95f, 1f);
@@ -615,16 +977,8 @@ public class NeonPanelAnim : MonoBehaviour
         cg.alpha = Mathf.Lerp(cg.alpha, targetAlpha, Time.deltaTime * 12f);
         transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * targetScale, Time.deltaTime * 12f);
 
-        if (!isShowing && cg.alpha < 0.05f)
-        {
-            cg.blocksRaycasts = false;
-            cg.interactable = false;
-        }
-        else if (isShowing)
-        {
-            cg.blocksRaycasts = true;
-            cg.interactable = true;
-        }
+        if (!isShowing && cg.alpha < 0.05f) { cg.blocksRaycasts = false; cg.interactable = false; }
+        else if (isShowing) { cg.blocksRaycasts = true; cg.interactable = true; }
     }
 
     public void Toggle() => isShowing = !isShowing;

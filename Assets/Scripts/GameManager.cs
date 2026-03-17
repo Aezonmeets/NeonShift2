@@ -47,12 +47,12 @@ public class GameManager : MonoBehaviour
 
     // --- FEVER ENERGY SYSTEM ---
     [Header("Fever Settings")]
-    public int feverEnergyThreshold = 50; // BUMPED TO 50
-    public float feverDuration = 10f;     // How long the chaos lasts
+    public int feverEnergyThreshold = 50;
+    public float feverDuration = 10f;
     int currentFeverEnergy = 0;
 
     public bool IsFeverActive { get; private set; }
-    public bool isFeverStarting { get; private set; } // Prevents multiple warnings
+    public bool isFeverStarting { get; private set; }
 
     // Original state variables to revert back to after Fever
     float baseSpawnInterval;
@@ -61,6 +61,8 @@ public class GameManager : MonoBehaviour
     float origOrthoSize;
 
     int score, combo, maxCombo, total, hits, perfectHits;
+    float displayScore = 0f;
+    float scoreScale = 1f;
     float hp = 100f;
     bool alive, paused;
     bool musicStarted = false;
@@ -288,6 +290,7 @@ public class GameManager : MonoBehaviour
         {
             combo++;
             score += 50;
+            scoreScale = 1.3f; // Bump scale for chaos hit
             if (combo > maxCombo) maxCombo = combo;
 
             lbl = "CHAOS!"; col = GetHDR(MAGENTA);
@@ -310,6 +313,7 @@ public class GameManager : MonoBehaviour
                 int pointsEarned = 100 + combo * 5;
                 if (IsFeverActive) pointsEarned *= 2;
                 score += pointsEarned;
+                scoreScale = 1.4f; // BIG pop for Perfect
 
                 lbl = "PERFECT!"; col = CP;
                 sfx.PlayOneShot(sPerfect, IsFeverActive ? 1.4f : 1.2f);
@@ -326,6 +330,7 @@ public class GameManager : MonoBehaviour
                 int goodPoints = 50;
                 if (IsFeverActive) goodPoints *= 2;
                 score += goodPoints;
+                scoreScale = 1.2f; // Small pop for Good
 
                 lbl = "GOOD"; col = CG;
                 sfx.PlayOneShot(sGood);
@@ -334,7 +339,9 @@ public class GameManager : MonoBehaviour
             case HitResult.Early:
             case HitResult.Late:
                 combo = 0; currentFeverEnergy = 0;
-                score += 20; lbl = r == HitResult.Early ? "EARLY" : "LATE"; col = CO; sfx.PlayOneShot(sGood, 0.8f);
+                score += 20;
+                scoreScale = 1.1f; // Tiny pop
+                lbl = r == HitResult.Early ? "EARLY" : "LATE"; col = CO; sfx.PlayOneShot(sGood, 0.8f);
                 break;
 
             default:
@@ -471,7 +478,17 @@ public class GameManager : MonoBehaviour
 
     void RefreshHUD()
     {
-        scoreTxt.text = score.ToString("N0");
+        // Smoothly roll the displayed score toward the actual score for a nice visual effect
+        displayScore = Mathf.Lerp(displayScore, score, Time.deltaTime * 15f);
+        if (Mathf.Abs(score - displayScore) < 0.5f) displayScore = score; // Snap when close
+
+        // --- CHANGED: Just the number, no "SCORE: " ---
+        scoreTxt.text = Mathf.RoundToInt(displayScore).ToString("N0");
+
+        // Animate the scale back to 1 for the pop effect
+        scoreScale = Mathf.Lerp(scoreScale, 1f, Time.deltaTime * 10f);
+        scoreTxt.transform.localScale = Vector3.one * scoreScale;
+
         float acc = total > 0 ? (float)perfectHits / total * 100f : 100f;
         accTxt.text = $"{acc:F1}%"; hpTxt.text = "\u2665 " + (int)hp;
 
@@ -530,11 +547,9 @@ public class GameManager : MonoBehaviour
         var cgo = new GameObject("_Canvas");
         var cv = cgo.AddComponent<Canvas>();
 
-        // --- THE NEON GLOW FIX ---
         cv.renderMode = RenderMode.ScreenSpaceCamera;
         cv.worldCamera = Camera.main;
         cv.planeDistance = 5f;
-        // -------------------------
 
         cv.sortingOrder = 20;
 
@@ -542,13 +557,19 @@ public class GameManager : MonoBehaviour
         sc.referenceResolution = new Vector2(1280, 720); sc.matchWidthOrHeight = 0.5f;
         cgo.AddComponent<GraphicRaycaster>();
 
-        scoreTxt = T(cgo, "0", 52, new Vector2(24, -20), A(0, 1), A(0, 1), TextAlignmentOptions.TopLeft);
-        scoreTxt.color = Color.white; scoreTxt.fontStyle = FontStyles.Bold;
+        // --- CHANGED: Removed the "SCORE: " text and made it size 40 instead of 48 ---
+        scoreTxt = T(cgo, "0", 40, new Vector2(40, -40), A(0, 1), A(0, 1), TextAlignmentOptions.TopLeft);
+        scoreTxt.rectTransform.pivot = new Vector2(0, 1);
+        scoreTxt.color = GetHDR(CYAN);
+        scoreTxt.fontStyle = FontStyles.Bold;
+        // -----------------------------------------------------------------------------
 
-        hpTxt = T(cgo, "\u2665 100", 28, new Vector2(0, -20), A(.5f, 1), A(.5f, 1), TextAlignmentOptions.Center);
+        hpTxt = T(cgo, "\u2665 100", 28, new Vector2(0, -40), A(.5f, 1), A(.5f, 1), TextAlignmentOptions.Top);
+        hpTxt.rectTransform.pivot = new Vector2(0.5f, 1);
         hpTxt.color = new Color(1f, .35f, .55f);
 
-        accTxt = T(cgo, "100.0%", 26, new Vector2(-20, -20), A(1, 1), A(1, 1), TextAlignmentOptions.TopRight);
+        accTxt = T(cgo, "100.0%", 26, new Vector2(-40, -40), A(1, 1), A(1, 1), TextAlignmentOptions.TopRight);
+        accTxt.rectTransform.pivot = new Vector2(1, 1);
         accTxt.color = CYAN;
 
         comboTxt = T(cgo, "", 72, new Vector2(0, 100), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center);
@@ -564,9 +585,9 @@ public class GameManager : MonoBehaviour
         var fBGRt = fBG.AddComponent<RectTransform>();
         fBGRt.anchorMin = A(1, 0.5f); fBGRt.anchorMax = A(1, 0.5f);
         fBGRt.anchoredPosition = new Vector2(-60, 0);
-        fBGRt.sizeDelta = new Vector2(30, 350); // Made it slightly wider for that thermometer look
+        fBGRt.sizeDelta = new Vector2(30, 350);
         fBG.AddComponent<Image>().color = new Color(0.1f, 0.1f, 0.2f, 0.8f);
-        AddBorder(fBG, new Color(0.5f, 0.5f, 0.6f, 0.5f), 0.3f); // Calmer border to let the internal color pop
+        AddBorder(fBG, new Color(0.5f, 0.5f, 0.6f, 0.5f), 0.3f);
 
         var fFill = new GameObject("FeverFill"); fFill.transform.SetParent(fBG.transform, false);
         feverFillRT = fFill.AddComponent<RectTransform>();
