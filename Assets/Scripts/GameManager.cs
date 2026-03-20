@@ -21,9 +21,15 @@ public class GameManager : MonoBehaviour
 
     [Header("Visuals & Background")]
     public float glowIntensity = 2.5f;
-    public bool isFeverMode = false; // <--- ADD THIS EXACT LINE!
+    public bool isFeverMode = false;
     public Sprite backgroundImage;
     [Range(0f, 1f)] public float backgroundBrightness = 0.3f;
+
+    // ── Drag your bar-chart icon PNG here in the Inspector ────────────────
+    [Header("Live Scoring Card")]
+    [Tooltip("Drag your bar-chart icon sprite here. If left empty the icon is drawn in code.")]
+    public Sprite liveScoringIcon;
+    // ─────────────────────────────────────────────────────────────────────
 
     [Header("Level Songs")]
     public SongData[] allSongs;
@@ -34,82 +40,88 @@ public class GameManager : MonoBehaviour
     public AudioClip customMissSound;
 
     [Header("Audio Analysis (Auto-Beat)")]
-    [Tooltip("How loud the mid/high frequencies need to be to trigger 4x speed (rap/fast beats).")]
+    [Tooltip("How loud the mid/high frequencies need to be to trigger 4x speed.")]
     public float activityThreshold = 0.02f;
     private float[] spectrumData = new float[256];
     private float currentDynamicSubdivision = 2f;
 
-    // --- OVERDRIVE MULTIPLIERS ---
     [Header("Overdrive Difficulty")]
-    [Tooltip("How much faster the tiles move during Overdrive.")]
     public float overdriveSpeedMultiplier = 1.6f;
-    [Tooltip("How much faster the track rotates during Overdrive (lower is faster).")]
     public float overdriveRotationMultiplier = 0.65f;
 
-    // --- FEVER ENERGY SYSTEM ---
     [Header("Fever Settings")]
     public int feverEnergyThreshold = 50;
     public float feverDuration = 10f;
     int currentFeverEnergy = 0;
 
-    public bool IsFeverActive { get; private set; }
+    public bool IsFeverActive   { get; private set; }
     public bool isFeverStarting { get; private set; }
 
-    // Original state variables to revert back to after Fever
-    float baseSpawnInterval;
-    float baseTileSpeed;
-    float baseTrackRot;
-    float origOrthoSize;
+    float baseSpawnInterval, baseTileSpeed, baseTrackRot, origOrthoSize;
 
-    int score, combo, maxCombo, total, hits, perfectHits;
+    int   score, combo, maxCombo, total, hits, perfectHits;
     float displayScore = 0f;
-    float scoreScale = 1f;
-    float hp = 100f;
-    bool alive, paused;
-    bool musicStarted = false;
+    float scoreScale   = 1f;
+    float hp           = 100f;
+    bool  alive, paused, musicStarted;
 
     double dspStartTime;
 
-    TextMeshProUGUI scoreTxt, comboTxt, accTxt, hpTxt, resultTxt, feverTxt, feverEnergyTxt;
-    RectTransform feverFillRT;
-    Image feverFillImg;
+    // scoreTxt kept for compat but not added to canvas — card shows score instead
+    TextMeshProUGUI scoreTxt;
+    TextMeshProUGUI comboTxt, accTxt, hpTxt, resultTxt, feverTxt, feverEnergyTxt;
+    RectTransform   feverFillRT;
+    Image           feverFillImg;
     TextMeshProUGUI goScore, goAcc, goCombo, goTitle;
-    GameObject goPanel, pausePanel, lbPanel;
-    GameObject feverUIContainer;
-    Coroutine resultCo;
+    GameObject      goPanel, pausePanel;
+    GameObject      feverUIContainer;
+    Coroutine       resultCo;
 
-    AudioSource music;
-    AudioSource sfx;
-    AudioClip sPerfect, sGood, sMiss;
+    AudioSource music, sfx;
+    AudioClip   sPerfect, sGood, sMiss;
 
-    static readonly Color CP = new Color(1f, .95f, .15f); // Yellow
-    static readonly Color CG = new Color(.1f, 1f, .6f);   // Green
-    static readonly Color CO = new Color(1f, .6f, .1f);   // Orange
-    static readonly Color CM = new Color(1f, .2f, .35f);  // Red
-    static readonly Color CYAN = new Color(0f, .9f, 1f);  // Cyan
-    static readonly Color MAGENTA = new Color(1f, .15f, .75f); // Magenta
+    // ── Live Scoring card refs ─────────────────────────────────────────────
+    TextMeshProUGUI liveScoreValueTxt;
+    TextMeshProUGUI liveRankValueTxt;
+    GameObject      liveScoringCard;
+    Coroutine       scoreCountCo;
+    Coroutine       rankFlashCo;
+    long            liveDisplayedScore = 0;
+    int             lastPolledRank     = -1;
+    long            lastPolledScore    = -1;
 
+    static readonly Color CP      = new Color(1f,  .95f, .15f);
+    static readonly Color CG      = new Color(.1f, 1f,   .6f);
+    static readonly Color CO      = new Color(1f,  .6f,  .1f);
+    static readonly Color CM      = new Color(1f,  .2f,  .35f);
+    static readonly Color CYAN    = new Color(0f,  .9f,  1f);
+    static readonly Color MAGENTA = new Color(1f,  .15f, .75f);
+
+    static readonly Color CARD_BG   = new Color(0.03f, 0.05f, 0.09f, 0.97f);
+    static readonly Color CARD_CYAN = new Color(0f,    0.92f, 1f,    1f);
+
+    // ─────────────────────────────────────────────────────────────────────────
     void Awake()
     {
         if (Instance != null) { Destroy(gameObject); return; }
         Instance = this;
         Camera.main.backgroundColor = new Color(.025f, .025f, .09f);
-        Camera.main.clearFlags = CameraClearFlags.SolidColor;
-        Camera.main.allowHDR = true;
+        Camera.main.clearFlags      = CameraClearFlags.SolidColor;
+        Camera.main.allowHDR        = true;
 
         foreach (var c in FindObjectsByType<Canvas>(FindObjectsSortMode.None))
             if (c.gameObject != gameObject) Destroy(c.gameObject);
 
-        sfx = gameObject.AddComponent<AudioSource>();
+        sfx        = gameObject.AddComponent<AudioSource>();
         sfx.volume = PlayerPrefs.GetFloat("SFXVolume", 1.0f);
 
-        music = gameObject.AddComponent<AudioSource>();
-        music.loop = true;
+        music        = gameObject.AddComponent<AudioSource>();
+        music.loop   = true;
         music.volume = PlayerPrefs.GetFloat("MusicVolume", 0.45f);
 
         sPerfect = customPerfectSound != null ? customPerfectSound : Beep(880f, .08f);
-        sGood = customGoodSound != null ? customGoodSound : Beep(660f, .06f);
-        sMiss = customMissSound != null ? customMissSound : Beep(110f, .13f, true);
+        sGood    = customGoodSound    != null ? customGoodSound    : Beep(660f, .06f);
+        sMiss    = customMissSound    != null ? customMissSound    : Beep(110f, .13f, true);
 
         SetupBackground();
         BuildUI();
@@ -119,13 +131,16 @@ public class GameManager : MonoBehaviour
     {
         TileSpawner.Instance.Init(currentMode);
         ApplyMode();
-        alive = true;
-
+        alive         = true;
         origOrthoSize = Camera.main.orthographicSize;
+
+        string playerName = PlayerPrefs.GetString("PlayerName", "Player");
+        LiveScoreManager.Instance.RegisterPlayer(playerName, 0);
 
         TileSpawner.Instance.BeginSpawning();
         TrackController.Instance.BeginRotating();
         TryPlayMusic();
+        StartCoroutine(FadeInLiveCard());
     }
 
     void SetupBackground()
@@ -135,41 +150,30 @@ public class GameManager : MonoBehaviour
         bgObj.transform.SetParent(Camera.main.transform);
         bgObj.transform.localPosition = new Vector3(0f, 0f, 10f);
         SpriteRenderer bgSR = bgObj.AddComponent<SpriteRenderer>();
-        bgSR.sprite = backgroundImage;
+        bgSR.sprite       = backgroundImage;
         bgSR.sortingOrder = -100;
-        bgSR.color = new Color(backgroundBrightness, backgroundBrightness, backgroundBrightness, 1f);
-        float camHeight = Camera.main.orthographicSize * 2f;
-        float camWidth = camHeight * Camera.main.aspect;
+        bgSR.color        = new Color(backgroundBrightness, backgroundBrightness, backgroundBrightness, 1f);
+        float camHeight  = Camera.main.orthographicSize * 2f;
+        float camWidth   = camHeight * Camera.main.aspect;
         float finalScale = Mathf.Max(camWidth / bgSR.sprite.bounds.size.x, camHeight / bgSR.sprite.bounds.size.y);
         bgObj.transform.localScale = new Vector3(finalScale, finalScale, 1f);
     }
 
     Color GetHDR(Color c) => new Color(c.r * glowIntensity, c.g * glowIntensity, c.b * glowIntensity, 1f);
-
-    public Color GetFeverRGB()
-    {
-        return Color.HSVToRGB((Time.time * 2f) % 1f, 1f, 1f);
-    }
+    public Color GetFeverRGB() => Color.HSVToRGB((Time.time * 2f) % 1f, 1f, 1f);
 
     void TryPlayMusic()
     {
         string pickedSong = PlayerPrefs.GetString("SelectedSong", "");
         string difficulty = PlayerPrefs.GetString("SelectedDifficulty", "Easy");
-
-        if (System.Enum.TryParse(difficulty, out GameMode parsedMode))
-        {
-            currentMode = parsedMode;
-        }
-
+        if (System.Enum.TryParse(difficulty, out GameMode parsedMode)) currentMode = parsedMode;
         AudioClip clipToPlay = Resources.Load<AudioClip>($"Music/{difficulty}/{pickedSong}");
-
         if (clipToPlay != null)
         {
             music.clip = clipToPlay;
             if (currentMode != GameMode.Endless && TileSpawner.Instance != null)
                 TileSpawner.Instance.SetDynamicBPM(clipToPlay.name);
-
-            music.loop = (currentMode == GameMode.Endless);
+            music.loop   = (currentMode == GameMode.Endless);
             music.Play();
             dspStartTime = AudioSettings.dspTime;
             musicStarted = true;
@@ -181,33 +185,21 @@ public class GameManager : MonoBehaviour
         if (!alive) return;
         if (Input.GetKeyDown(KeyCode.Escape)) TogglePause();
 
-        // --- DYNAMIC AUDIO ANALYSIS FOR OVERDRIVE ---
         if (IsFeverActive && !paused && music.isPlaying)
         {
             music.GetSpectrumData(spectrumData, 0, FFTWindow.BlackmanHarris);
-
             float midHighEnergy = 0f;
-            for (int i = 10; i < 60; i++)
-            {
-                midHighEnergy += spectrumData[i];
-            }
+            for (int i = 10; i < 60; i++) midHighEnergy += spectrumData[i];
             midHighEnergy /= 50f;
-
-            // Rap/Fast section detection: kicks it into 4x spawn mode
             float targetSubdivision = (midHighEnergy > activityThreshold) ? 4f : 2f;
             currentDynamicSubdivision = Mathf.Lerp(currentDynamicSubdivision, targetSubdivision, Time.deltaTime * 12f);
         }
 
         if (!paused && Camera.main != null)
         {
-            if (IsFeverActive)
-            {
-                Camera.main.orthographicSize = Mathf.Lerp(Camera.main.orthographicSize, origOrthoSize * 1.25f, Time.deltaTime * 5f);
-            }
-            else
-            {
-                Camera.main.orthographicSize = Mathf.Lerp(Camera.main.orthographicSize, origOrthoSize, Time.deltaTime * 5f);
-            }
+            Camera.main.orthographicSize = IsFeverActive
+                ? Mathf.Lerp(Camera.main.orthographicSize, origOrthoSize * 1.25f, Time.deltaTime * 5f)
+                : Mathf.Lerp(Camera.main.orthographicSize, origOrthoSize,         Time.deltaTime * 5f);
             Camera.main.transform.localRotation = Quaternion.identity;
         }
 
@@ -215,28 +207,23 @@ public class GameManager : MonoBehaviour
         {
             float t = Time.timeSinceLevelLoad;
             float targetInterval = Mathf.Max(.2f, 0.7f - t * .005f);
-
             TileSpawner.Instance.spawnInterval = IsFeverActive ? targetInterval / currentDynamicSubdivision : targetInterval;
-
-            // Harder speed scaling in endless Overdrive
             float currentEndlessSpeed = Mathf.Min(20f, 6f + t * .02f);
             TileSpawner.Instance.tileSpeed = IsFeverActive ? currentEndlessSpeed * overdriveSpeedMultiplier : currentEndlessSpeed;
         }
         else if (musicStarted && !paused)
         {
             if (IsFeverActive)
-            {
-                // Dynamic fast spawns + static fast tile speed
                 TileSpawner.Instance.spawnInterval = baseSpawnInterval / currentDynamicSubdivision;
-            }
-
             if (!music.isPlaying && TileSpawner.Instance.GetActiveTiles().Count == 0)
             {
                 musicStarted = false;
                 StartCoroutine(TrackClearRoutine());
             }
         }
+
         RefreshHUD();
+        if (!paused) RefreshLiveCard();
     }
 
     IEnumerator TrackClearRoutine() { yield return new WaitForSeconds(0.8f); if (alive) EndLevel(true); }
@@ -246,109 +233,91 @@ public class GameManager : MonoBehaviour
         var ts = TileSpawner.Instance;
         var tc = TrackController.Instance;
         var pc = PlayerController.Instance;
-
         switch (currentMode)
         {
             case GameMode.Easy:
-                ts.spawnInterval = 0.75f; ts.tileSpeed = 6f; tc.rotationInterval = 9f;
-                pc.earlyDistance = 3.0f; pc.earlyGoodDistance = 1.5f; pc.earlyPerfectDistance = 0.6f;
+                ts.spawnInterval = 0.75f; ts.tileSpeed = 6f;  tc.rotationInterval = 9f;
+                pc.earlyDistance = 3.0f;  pc.earlyGoodDistance = 1.5f; pc.earlyPerfectDistance = 0.6f;
                 pc.latePerfectDistance = -0.4f; pc.lateGoodDistance = -1.2f; pc.lateDistance = -1.8f;
                 break;
             case GameMode.Medium:
-                ts.spawnInterval = 0.45f; ts.tileSpeed = 9f; tc.rotationInterval = 6f;
-                pc.earlyDistance = 2.8f; pc.earlyGoodDistance = 1.2f; pc.earlyPerfectDistance = 0.4f;
+                ts.spawnInterval = 0.45f; ts.tileSpeed = 9f;  tc.rotationInterval = 6f;
+                pc.earlyDistance = 2.8f;  pc.earlyGoodDistance = 1.2f; pc.earlyPerfectDistance = 0.4f;
                 pc.latePerfectDistance = -0.2f; pc.lateGoodDistance = -0.8f; pc.lateDistance = -1.4f;
                 break;
             case GameMode.Hard:
                 ts.spawnInterval = 0.22f; ts.tileSpeed = 14f; tc.rotationInterval = 3.5f;
-                pc.earlyDistance = 2.4f; pc.earlyGoodDistance = 0.8f; pc.earlyPerfectDistance = 0.25f;
+                pc.earlyDistance = 2.4f;  pc.earlyGoodDistance = 0.8f; pc.earlyPerfectDistance = 0.25f;
                 pc.latePerfectDistance = -0.15f; pc.lateGoodDistance = -0.5f; pc.lateDistance = -1.0f;
                 break;
             case GameMode.Endless:
-                ts.spawnInterval = 0.7f; ts.tileSpeed = 6f; tc.rotationInterval = 8f;
-                pc.earlyDistance = 2.8f; pc.earlyGoodDistance = 1.2f; pc.earlyPerfectDistance = 0.4f;
+                ts.spawnInterval = 0.7f;  ts.tileSpeed = 6f;  tc.rotationInterval = 8f;
+                pc.earlyDistance = 2.8f;  pc.earlyGoodDistance = 1.2f; pc.earlyPerfectDistance = 0.4f;
                 pc.latePerfectDistance = -0.2f; pc.lateGoodDistance = -0.8f; pc.lateDistance = -1.4f;
                 ts.endlessMode = true;
                 break;
         }
-
         if (feverUIContainer != null)
-        {
             feverUIContainer.SetActive(currentMode == GameMode.Endless);
-        }
-
         baseSpawnInterval = ts.spawnInterval;
-        baseTileSpeed = ts.tileSpeed;
-        baseTrackRot = tc.rotationInterval;
+        baseTileSpeed     = ts.tileSpeed;
+        baseTrackRot      = tc.rotationInterval;
     }
 
     public void RegisterHit(HitResult r, Vector3 pos)
     {
-        total++; string lbl; Color col;
+        total++;
+        string lbl; Color col;
 
-        // "GOD MODE" CHAOS FORGIVENESS
         if (IsFeverActive && r != HitResult.Perfect && r != HitResult.Good)
         {
-            combo++;
-            score += 50;
-            scoreScale = 1.3f; // Bump scale for chaos hit
+            combo++; score += 50; scoreScale = 1.3f;
             if (combo > maxCombo) maxCombo = combo;
-
             lbl = "CHAOS!"; col = GetHDR(MAGENTA);
             sfx.PlayOneShot(sGood, 0.8f);
             ShowResult(lbl, col);
+            LiveScoreManager.Instance.AddScore(50, "CHAOS");
             return;
         }
 
         switch (r)
         {
             case HitResult.Perfect:
-                perfectHits++;
-                combo++;
+                perfectHits++; combo++;
                 if (currentMode == GameMode.Endless && !IsFeverActive && !isFeverStarting)
-                {
-                    currentFeverEnergy++;
-                    if (currentFeverEnergy >= feverEnergyThreshold) StartFeverSequence();
-                }
-
+                { currentFeverEnergy++; if (currentFeverEnergy >= feverEnergyThreshold) StartFeverSequence(); }
                 int pointsEarned = 100 + combo * 5;
                 if (IsFeverActive) pointsEarned *= 2;
-                score += pointsEarned;
-                scoreScale = 1.4f; // BIG pop for Perfect
-
+                score += pointsEarned; scoreScale = 1.4f;
                 lbl = "PERFECT!"; col = CP;
                 sfx.PlayOneShot(sPerfect, IsFeverActive ? 1.4f : 1.2f);
+                LiveScoreManager.Instance.AddScore(pointsEarned, "PERFECT");
                 break;
-
             case HitResult.Good:
                 combo = 0;
                 if (currentMode == GameMode.Endless && !IsFeverActive && !isFeverStarting)
-                {
-                    currentFeverEnergy++;
-                    if (currentFeverEnergy >= feverEnergyThreshold) StartFeverSequence();
-                }
-
+                { currentFeverEnergy++; if (currentFeverEnergy >= feverEnergyThreshold) StartFeverSequence(); }
                 int goodPoints = 50;
                 if (IsFeverActive) goodPoints *= 2;
-                score += goodPoints;
-                scoreScale = 1.2f; // Small pop for Good
-
+                score += goodPoints; scoreScale = 1.2f;
                 lbl = "GOOD"; col = CG;
                 sfx.PlayOneShot(sGood);
+                LiveScoreManager.Instance.AddScore(goodPoints, "GOOD");
                 break;
-
             case HitResult.Early:
             case HitResult.Late:
                 combo = 0; currentFeverEnergy = 0;
-                score += 20;
-                scoreScale = 1.1f; // Tiny pop
-                lbl = r == HitResult.Early ? "EARLY" : "LATE"; col = CO; sfx.PlayOneShot(sGood, 0.8f);
+                score += 20; scoreScale = 1.1f;
+                lbl = r == HitResult.Early ? "EARLY" : "LATE"; col = CO;
+                sfx.PlayOneShot(sGood, 0.8f);
+                LiveScoreManager.Instance.AddScore(20, lbl);
                 break;
-
             default:
-                combo = 0; currentFeverEnergy = 0; hp = Mathf.Max(0f, hp - 10f);
+                combo = 0; currentFeverEnergy = 0;
+                hp = Mathf.Max(0f, hp - 10f);
                 lbl = "MISS"; col = CM;
-                sfx.PlayOneShot(sMiss); CameraShake.Instance?.Shake(.2f, .1f);
+                sfx.PlayOneShot(sMiss);
+                CameraShake.Instance?.Shake(.2f, .1f);
                 if (hp <= 0f) { EndLevel(false); return; }
                 break;
         }
@@ -376,85 +345,56 @@ public class GameManager : MonoBehaviour
     {
         IsFeverActive = true;
         currentFeverEnergy = feverEnergyThreshold;
-
         currentDynamicSubdivision = 2f;
-
         TileSpawner.Instance.spawnInterval = baseSpawnInterval / currentDynamicSubdivision;
-
         float newSpeed = baseTileSpeed * overdriveSpeedMultiplier;
         TileSpawner.Instance.tileSpeed = newSpeed;
         TileSpawner.Instance.UpdateActiveTileSpeeds(newSpeed);
-
         TrackController.Instance.rotationInterval = baseTrackRot * overdriveRotationMultiplier;
-
-        feverTxt.text = "OVERDRIVE";
-        feverTxt.color = GetHDR(Color.white);
-        feverFillImg.color = GetHDR(MAGENTA);
-        comboTxt.fontSize = 85;
-
+        feverTxt.text = "OVERDRIVE"; feverTxt.color = GetHDR(Color.white);
+        feverFillImg.color = GetHDR(MAGENTA); comboTxt.fontSize = 85;
         CameraShake.Instance?.Shake(0.3f, 0.15f);
-
         StartCoroutine(FeverDurationRoutine());
     }
 
-    // Coroutine to automatically end fever with a flashing warning
     IEnumerator FeverDurationRoutine()
     {
-        float warningDuration = 2f; // Flash for 2 seconds before ending
-        float initialDuration = Mathf.Max(0f, feverDuration - warningDuration);
-
-        yield return new WaitForSeconds(initialDuration);
-
-        // Warn the player that the chaos is about to stop
+        float warningDuration = 2f;
+        yield return new WaitForSeconds(Mathf.Max(0f, feverDuration - warningDuration));
         if (IsFeverActive && TrackController.Instance != null)
-        {
             yield return StartCoroutine(TrackController.Instance.FlashWarningRoutine(warningDuration));
-        }
-
         if (IsFeverActive) DeactivateFever();
     }
 
     void DeactivateFever()
     {
-        IsFeverActive = false;
-        currentFeverEnergy = 0;
-
+        IsFeverActive = false; currentFeverEnergy = 0;
         TileSpawner.Instance.spawnInterval = baseSpawnInterval;
-
         TileSpawner.Instance.tileSpeed = baseTileSpeed;
         TileSpawner.Instance.UpdateActiveTileSpeeds(baseTileSpeed);
-
         TrackController.Instance.rotationInterval = baseTrackRot;
-
-        feverTxt.text = "FEVER";
-        feverTxt.color = new Color(1f, 1f, 1f, 0.7f);
-        feverFillImg.color = GetHDR(CYAN);
-        comboTxt.fontSize = 72;
-
+        feverTxt.text = "FEVER"; feverTxt.color = new Color(1f, 1f, 1f, 0.7f);
+        feverFillImg.color = GetHDR(CYAN); comboTxt.fontSize = 72;
         CameraShake.Instance?.Shake(0.2f, 0.1f);
     }
 
     public void EndLevel(bool cleared = false)
     {
-        alive = false; if (music.isPlaying) music.Stop();
-        TileSpawner.Instance.StopSpawning(); TrackController.Instance.StopRotating();
+        alive = false;
+        if (music.isPlaying) music.Stop();
+        TileSpawner.Instance.StopSpawning();
+        TrackController.Instance.StopRotating();
         float acc = total > 0 ? (float)perfectHits / total * 100f : 0f;
         goScore.text = score.ToString("N0"); goAcc.text = $"{acc:F1}%"; goCombo.text = "x" + maxCombo;
         if (cleared) { goTitle.text = "TRACK CLEARED"; goTitle.color = GetHDR(CG); sfx.PlayOneShot(sPerfect); }
         else { goTitle.text = "GAME OVER"; goTitle.color = GetHDR(new Color(1f, .15f, .25f)); }
         goPanel.SetActive(true);
-
-        // ── SAVE SCORE TO LEADERBOARD ─────────────────────────────────────
-        // This is the only line that was missing. It submits the player's
-        // name (from PlayerPrefs), score, max combo, accuracy, and chosen
-        // avatar index so the leaderboard scene can display them.
-        LeaderboardManager.Instance.TrySubmit(
-            currentMode.ToString(),   // "Easy" / "Medium" / "Hard" / "Endless"
-            score,
-            maxCombo,
-            acc
-        );
-        // ─────────────────────────────────────────────────────────────────
+        LeaderboardManager.Instance.TrySubmit(currentMode.ToString(), score, maxCombo, acc);
+        if (liveScoringCard != null)
+        {
+            var cg = liveScoringCard.GetComponent<CanvasGroup>();
+            if (cg != null) StartCoroutine(FadeOutLiveCard(cg));
+        }
     }
 
     void TogglePause()
@@ -465,83 +405,328 @@ public class GameManager : MonoBehaviour
         pausePanel.SetActive(paused);
     }
 
-    public void Restart() { Time.timeScale = 1f; SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex); }
+    public void Restart()  { Time.timeScale = 1f; SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex); }
     public void MainMenu() { Time.timeScale = 1f; SceneManager.LoadScene("MainMenu"); }
     public bool IsGameActive() => alive;
 
     public float GetMusicTime()
     {
-        if (music != null && music.clip != null && music.isPlaying && !paused) return (float)(AudioSettings.dspTime - dspStartTime);
+        if (music != null && music.clip != null && music.isPlaying && !paused)
+            return (float)(AudioSettings.dspTime - dspStartTime);
         else if (music != null && paused) return music.time;
         return 0f;
     }
 
     public void ApplySpamPenalty()
     {
-        if (!alive) return;
-
-        // Ignore spam penalties entirely during Overdrive (God Mode!)
-        if (IsFeverActive) return;
-
+        if (!alive || IsFeverActive) return;
         combo = 0; currentFeverEnergy = 0; hp = Mathf.Max(0f, hp - 3f);
         sfx.PlayOneShot(sMiss); CameraShake.Instance?.Shake(.1f, .05f);
-        ShowResult("SPAM!", CM); if (hp <= 0f) EndLevel(false);
-        RefreshHUD();
+        ShowResult("SPAM!", CM); if (hp <= 0f) EndLevel(false); RefreshHUD();
     }
 
     void RefreshHUD()
     {
-        // Smoothly roll the displayed score toward the actual score for a nice visual effect
         displayScore = Mathf.Lerp(displayScore, score, Time.deltaTime * 15f);
-        if (Mathf.Abs(score - displayScore) < 0.5f) displayScore = score; // Snap when close
-
-        // --- CHANGED: Just the number, no "SCORE: " ---
-        scoreTxt.text = Mathf.RoundToInt(displayScore).ToString("N0");
-
-        // Animate the scale back to 1 for the pop effect
+        if (Mathf.Abs(score - displayScore) < 0.5f) displayScore = score;
         scoreScale = Mathf.Lerp(scoreScale, 1f, Time.deltaTime * 10f);
-        scoreTxt.transform.localScale = Vector3.one * scoreScale;
 
         float acc = total > 0 ? (float)perfectHits / total * 100f : 100f;
-        accTxt.text = $"{acc:F1}%"; hpTxt.text = "\u2665 " + (int)hp;
-
+        accTxt.text   = $"{acc:F1}%";
+        hpTxt.text    = "\u2665 " + (int)hp;
         comboTxt.text = combo > 1 ? "x" + combo : "";
 
         if (combo > 1)
-        {
-            if (IsFeverActive) comboTxt.color = GetHDR(GetFeverRGB());
-            else comboTxt.color = Color.Lerp(CYAN, MAGENTA, Mathf.Sin(Time.time * 7f) * .5f + .5f);
-        }
+            comboTxt.color = IsFeverActive
+                ? GetHDR(GetFeverRGB())
+                : Color.Lerp(CYAN, MAGENTA, Mathf.Sin(Time.time * 7f) * .5f + .5f);
 
         if (feverFillRT != null && feverEnergyTxt != null)
         {
             if (IsFeverActive)
             {
-                feverFillRT.localScale = new Vector3(1f, 1f, 1f);
-                feverFillImg.color = GetHDR(GetFeverRGB());
-                feverEnergyTxt.text = "MAX";
+                feverFillRT.localScale = Vector3.one;
+                feverFillImg.color     = GetHDR(GetFeverRGB());
+                feverEnergyTxt.text    = "MAX";
             }
             else
             {
-                // Temperature Style Logic! 
-                // Cyan (Cold) -> Yellow (Warm) -> Red (Hot)
                 float fill = Mathf.Clamp01((float)currentFeverEnergy / feverEnergyThreshold);
-
-                Color tempColor;
-                if (fill < 0.5f)
-                    tempColor = Color.Lerp(CYAN, CP, fill * 2f); // 0% to 50%
-                else
-                    tempColor = Color.Lerp(CP, CM, (fill - 0.5f) * 2f); // 50% to 100%
-
-                feverFillImg.color = GetHDR(tempColor);
-
-                feverEnergyTxt.text = $"{currentFeverEnergy} / {feverEnergyThreshold}";
+                Color tc = fill < 0.5f
+                    ? Color.Lerp(CYAN, CP, fill * 2f)
+                    : Color.Lerp(CP, CM, (fill - 0.5f) * 2f);
+                feverFillImg.color     = GetHDR(tc);
+                feverEnergyTxt.text    = $"{currentFeverEnergy} / {feverEnergyThreshold}";
                 feverFillRT.localScale = new Vector3(1f, fill, 1f);
             }
         }
     }
 
-    void ShowResult(string lbl, Color col) { if (resultCo != null) StopCoroutine(resultCo); resultCo = StartCoroutine(ResultAnim(lbl, col)); }
+    // =========================================================================
+    // LIVE SCORING CARD — top-left corner
+    // =========================================================================
+
+    void BuildLiveCard(GameObject canvasGo)
+    {
+        liveScoringCard = new GameObject("LiveScoringCard");
+        liveScoringCard.transform.SetParent(canvasGo.transform, false);
+
+        var cardRT = liveScoringCard.AddComponent<RectTransform>();
+        cardRT.anchorMin        = new Vector2(0f, 1f);
+        cardRT.anchorMax        = new Vector2(0f, 1f);
+        cardRT.pivot            = new Vector2(0f, 1f);
+        cardRT.anchoredPosition = new Vector2(20f, -20f);
+        cardRT.sizeDelta        = new Vector2(220f, 150f);
+
+        var cg   = liveScoringCard.AddComponent<CanvasGroup>();
+        cg.alpha = 0f;
+
+        // Dark background
+        liveScoringCard.AddComponent<Image>().color = CARD_BG;
+
+        // Cyan border
+        var border = liveScoringCard.AddComponent<Outline>();
+        border.effectColor    = new Color(CARD_CYAN.r, CARD_CYAN.g, CARD_CYAN.b, 0.70f);
+        border.effectDistance = new Vector2(2f, -2f);
+
+        // Top cyan glow strip
+        var stripGo = new GameObject("GlowStrip");
+        stripGo.transform.SetParent(liveScoringCard.transform, false);
+        var sRT = stripGo.AddComponent<RectTransform>();
+        sRT.anchorMin        = new Vector2(0f, 1f);
+        sRT.anchorMax        = new Vector2(1f, 1f);
+        sRT.pivot            = new Vector2(0.5f, 1f);
+        sRT.anchoredPosition = Vector2.zero;
+        sRT.sizeDelta        = new Vector2(0f, 2f);
+        stripGo.AddComponent<Image>().color = new Color(CARD_CYAN.r, CARD_CYAN.g, CARD_CYAN.b, 0.6f);
+
+        // ── HEADER: icon + "LIVE SCORING" ─────────────────────────────────────
+        // Uses your assigned sprite if set, otherwise falls back to code-drawn bars
+        if (liveScoringIcon != null)
+        {
+            // Custom sprite icon
+            var iconGo = new GameObject("LiveIcon");
+            iconGo.transform.SetParent(liveScoringCard.transform, false);
+            var iconRT = iconGo.AddComponent<RectTransform>();
+            iconRT.anchorMin        = new Vector2(0f, 1f);
+            iconRT.anchorMax        = new Vector2(0f, 1f);
+            iconRT.pivot            = new Vector2(0f, 1f);
+            iconRT.anchoredPosition = new Vector2(8f, -7f);
+            iconRT.sizeDelta        = new Vector2(18f, 18f);
+            var iconImg             = iconGo.AddComponent<Image>();
+            iconImg.sprite          = liveScoringIcon;
+            iconImg.color           = CARD_CYAN;
+            iconImg.preserveAspect  = true;
+            iconImg.raycastTarget   = false;
+        }
+        else
+        {
+            // Fallback: three code-drawn bars
+            BuildBarChartIcon(liveScoringCard, new Vector2(20f, -16f));
+        }
+
+        // "LIVE SCORING" label — sits right of the icon
+        var headerGo = new GameObject("HeaderTxt");
+        headerGo.transform.SetParent(liveScoringCard.transform, false);
+        var hRT = headerGo.AddComponent<RectTransform>();
+        hRT.anchorMin        = new Vector2(0f, 1f);
+        hRT.anchorMax        = new Vector2(1f, 1f);
+        hRT.pivot            = new Vector2(0f, 1f);
+        hRT.anchoredPosition = new Vector2(32f, -8f);
+        hRT.sizeDelta        = new Vector2(-36f, 20f);
+        var hTMP = headerGo.AddComponent<TextMeshProUGUI>();
+        hTMP.text             = "LIVE SCORING";
+        hTMP.fontSize         = 11f;
+        hTMP.fontStyle        = FontStyles.Bold;
+        hTMP.color            = CARD_CYAN;
+        hTMP.alignment        = TextAlignmentOptions.Left;
+        hTMP.characterSpacing = 3f;
+        hTMP.raycastTarget    = false;
+
+        // Divider under header
+        var divGo = new GameObject("Divider");
+        divGo.transform.SetParent(liveScoringCard.transform, false);
+        var dRT = divGo.AddComponent<RectTransform>();
+        dRT.anchorMin        = new Vector2(0f, 1f);
+        dRT.anchorMax        = new Vector2(1f, 1f);
+        dRT.pivot            = new Vector2(0.5f, 1f);
+        dRT.anchoredPosition = new Vector2(0f, -30f);
+        dRT.sizeDelta        = new Vector2(-14f, 1f);
+        divGo.AddComponent<Image>().color =
+            new Color(CARD_CYAN.r, CARD_CYAN.g, CARD_CYAN.b, 0.22f);
+
+        // ── SCORE ROW ─────────────────────────────────────────────────────────
+        BuildCardRow(liveScoringCard, "SCORE", -30f, 28f,
+                     GetHDR(CARD_CYAN), out liveScoreValueTxt);
+
+        // Mid divider
+        var midDiv = new GameObject("MidDiv");
+        midDiv.transform.SetParent(liveScoringCard.transform, false);
+        var mdRT = midDiv.AddComponent<RectTransform>();
+        mdRT.anchorMin        = new Vector2(0f, 1f);
+        mdRT.anchorMax        = new Vector2(1f, 1f);
+        mdRT.pivot            = new Vector2(0.5f, 1f);
+        mdRT.anchoredPosition = new Vector2(0f, -90f);
+        mdRT.sizeDelta        = new Vector2(-14f, 1f);
+        midDiv.AddComponent<Image>().color = new Color(1f, 1f, 1f, 0.06f);
+
+        // ── RANK ROW ──────────────────────────────────────────────────────────
+        BuildCardRow(liveScoringCard, "RANK", -94f, 28f,
+                     GetHDR(CARD_CYAN), out liveRankValueTxt);
+
+        // Seed initial values
+        liveScoreValueTxt.text = "0";
+        liveRankValueTxt.text  = "—";
+    }
+
+    void BuildCardRow(GameObject parent, string labelText,
+                      float yFromTop, float valueFontSize, Color valueColor,
+                      out TextMeshProUGUI valueTxt)
+    {
+        float rowH = valueFontSize + 16f;
+
+        // Label — left side
+        var lGo = new GameObject("Lbl_" + labelText);
+        lGo.transform.SetParent(parent.transform, false);
+        var lRT = lGo.AddComponent<RectTransform>();
+        lRT.anchorMin        = new Vector2(0f, 1f);
+        lRT.anchorMax        = new Vector2(0.45f, 1f);
+        lRT.pivot            = new Vector2(0f, 1f);
+        lRT.anchoredPosition = new Vector2(14f, yFromTop);
+        lRT.sizeDelta        = new Vector2(0f, rowH);
+        var lTMP = lGo.AddComponent<TextMeshProUGUI>();
+        lTMP.text             = labelText;
+        lTMP.fontSize         = 10f;
+        lTMP.fontStyle        = FontStyles.Bold;
+        lTMP.color            = new Color(CARD_CYAN.r * 0.75f, CARD_CYAN.g * 0.75f, CARD_CYAN.b * 0.75f, 1f);
+        lTMP.alignment        = TextAlignmentOptions.BottomLeft;
+        lTMP.characterSpacing = 2f;
+        lTMP.raycastTarget    = false;
+
+        // Value — right side, full card width so it never clips
+        var vGo = new GameObject("Val_" + labelText);
+        vGo.transform.SetParent(parent.transform, false);
+        var vRT = vGo.AddComponent<RectTransform>();
+        vRT.anchorMin        = new Vector2(0f, 1f);
+        vRT.anchorMax        = new Vector2(1f, 1f);
+        vRT.pivot            = new Vector2(1f, 1f);
+        vRT.anchoredPosition = new Vector2(-14f, yFromTop);
+        vRT.sizeDelta        = new Vector2(-14f, rowH);
+        valueTxt = vGo.AddComponent<TextMeshProUGUI>();
+        valueTxt.text          = "—";
+        valueTxt.fontSize      = valueFontSize;
+        valueTxt.fontStyle     = FontStyles.Bold;
+        valueTxt.color         = valueColor;
+        valueTxt.alignment     = TextAlignmentOptions.BottomRight;
+        valueTxt.overflowMode  = TextOverflowModes.Overflow;
+        valueTxt.raycastTarget = false;
+    }
+
+    // Fallback: three ascending code-drawn bars
+    void BuildBarChartIcon(GameObject parent, Vector2 anchoredPos)
+    {
+        float[] heights = { 7f, 11f, 16f };
+        float[] xOff    = { -7f, 0f, 7f };
+        for (int i = 0; i < 3; i++)
+        {
+            var bar = new GameObject("IconBar_" + i);
+            bar.transform.SetParent(parent.transform, false);
+            var bRT = bar.AddComponent<RectTransform>();
+            bRT.anchorMin        = new Vector2(0f, 1f);
+            bRT.anchorMax        = new Vector2(0f, 1f);
+            bRT.pivot            = new Vector2(0.5f, 1f);
+            bRT.anchoredPosition = new Vector2(anchoredPos.x + xOff[i], anchoredPos.y);
+            bRT.sizeDelta        = new Vector2(4f, heights[i]);
+            bar.AddComponent<Image>().color =
+                new Color(CARD_CYAN.r, CARD_CYAN.g, CARD_CYAN.b, 0.9f);
+        }
+    }
+
+    // ── Live card polling ─────────────────────────────────────────────────────
+    void RefreshLiveCard()
+    {
+        if (liveScoreValueTxt == null || liveRankValueTxt == null) return;
+        long liveScore = LiveScoreManager.Instance.PlayerScore;
+        int  liveRank  = LiveScoreManager.Instance.PlayerRank;
+
+        if (liveScore != lastPolledScore)
+        {
+            lastPolledScore = liveScore;
+            if (scoreCountCo != null) StopCoroutine(scoreCountCo);
+            scoreCountCo = StartCoroutine(CountScoreAnim(liveDisplayedScore, liveScore, 0.3f));
+        }
+        if (liveRank != lastPolledRank)
+        {
+            lastPolledRank = liveRank;
+            if (rankFlashCo != null) StopCoroutine(rankFlashCo);
+            rankFlashCo = StartCoroutine(FlashRankAnim(liveRank));
+        }
+    }
+
+    IEnumerator CountScoreAnim(long from, long to, float duration)
+    {
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t  = Mathf.SmoothStep(0f, 1f, elapsed / duration);
+            liveDisplayedScore     = (long)Mathf.Lerp(from, to, t);
+            liveScoreValueTxt.text = liveDisplayedScore.ToString("N0");
+            yield return null;
+        }
+        liveDisplayedScore     = to;
+        liveScoreValueTxt.text = to.ToString("N0");
+        yield return ScalePopAnim(liveScoreValueTxt.rectTransform, 1.08f, 0.10f);
+    }
+
+    IEnumerator FlashRankAnim(int newRank)
+    {
+        string suffix = newRank switch { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" };
+        liveRankValueTxt.text = newRank > 0 ? newRank + suffix : "—";
+        float t = 0f;
+        while (t < 0.18f)
+        {
+            t += Time.deltaTime;
+            liveRankValueTxt.color = Color.Lerp(Color.white, GetHDR(CARD_CYAN), t / 0.18f);
+            yield return null;
+        }
+        liveRankValueTxt.color = GetHDR(CARD_CYAN);
+        yield return ScalePopAnim(liveRankValueTxt.rectTransform, 1.12f, 0.12f);
+    }
+
+    IEnumerator ScalePopAnim(RectTransform rt, float peak, float halfDur)
+    {
+        float t = 0f;
+        while (t < halfDur) { t += Time.deltaTime; rt.localScale = Vector3.one * Mathf.Lerp(1f, peak, t / halfDur); yield return null; }
+        t = 0f;
+        while (t < halfDur) { t += Time.deltaTime; rt.localScale = Vector3.one * Mathf.Lerp(peak, 1f, t / halfDur); yield return null; }
+        rt.localScale = Vector3.one;
+    }
+
+    IEnumerator FadeInLiveCard()
+    {
+        yield return new WaitForSeconds(0.4f);
+        if (liveScoringCard == null) yield break;
+        var cg = liveScoringCard.GetComponent<CanvasGroup>();
+        float t = 0f;
+        while (t < 0.6f) { t += Time.deltaTime; cg.alpha = Mathf.SmoothStep(0f, 1f, t / 0.6f); yield return null; }
+        cg.alpha = 1f;
+    }
+
+    IEnumerator FadeOutLiveCard(CanvasGroup cg)
+    {
+        float t = 0f;
+        while (t < 0.4f) { t += Time.deltaTime; cg.alpha = Mathf.Lerp(1f, 0f, t / 0.4f); yield return null; }
+        cg.alpha = 0f;
+        liveScoringCard.SetActive(false);
+    }
+
+    // =========================================================================
+    void ShowResult(string lbl, Color col)
+    {
+        if (resultCo != null) StopCoroutine(resultCo);
+        resultCo = StartCoroutine(ResultAnim(lbl, col));
+    }
 
     IEnumerator ResultAnim(string lbl, Color col)
     {
@@ -549,45 +734,45 @@ public class GameManager : MonoBehaviour
         float t = 0f;
         while (t < 0.55f)
         {
-            t += Time.deltaTime; resultTxt.color = new Color(col.r, col.g, col.b, 1f - t / 0.55f);
-            resultTxt.transform.localScale = Vector3.one * Mathf.Lerp(1.4f, 1f, Mathf.Min(t / .18f, 1f)); yield return null;
+            t += Time.deltaTime;
+            resultTxt.color = new Color(col.r, col.g, col.b, 1f - t / 0.55f);
+            resultTxt.transform.localScale = Vector3.one * Mathf.Lerp(1.4f, 1f, Mathf.Min(t / .18f, 1f));
+            yield return null;
         }
         resultTxt.text = "";
     }
 
+    // =========================================================================
     void BuildUI()
     {
         var cgo = new GameObject("_Canvas");
-        var cv = cgo.AddComponent<Canvas>();
-
-        cv.renderMode = RenderMode.ScreenSpaceCamera;
-        cv.worldCamera = Camera.main;
+        var cv  = cgo.AddComponent<Canvas>();
+        cv.renderMode    = RenderMode.ScreenSpaceCamera;
+        cv.worldCamera   = Camera.main;
         cv.planeDistance = 5f;
+        cv.sortingOrder  = 20;
 
-        cv.sortingOrder = 20;
-
-        var sc = cgo.AddComponent<CanvasScaler>(); sc.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        sc.referenceResolution = new Vector2(1280, 720); sc.matchWidthOrHeight = 0.5f;
+        var sc = cgo.AddComponent<CanvasScaler>();
+        sc.uiScaleMode         = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        sc.referenceResolution = new Vector2(1280, 720);
+        sc.matchWidthOrHeight  = 0.5f;
         cgo.AddComponent<GraphicRaycaster>();
 
-        // --- CHANGED: Removed the "SCORE: " text and made it size 40 instead of 48 ---
-        scoreTxt = T(cgo, "0", 40, new Vector2(40, -40), A(0, 1), A(0, 1), TextAlignmentOptions.TopLeft);
-        scoreTxt.rectTransform.pivot = new Vector2(0, 1);
-        scoreTxt.color = GetHDR(CYAN);
-        scoreTxt.fontStyle = FontStyles.Bold;
-        // -----------------------------------------------------------------------------
-
+        // HP — top-centre
         hpTxt = T(cgo, "\u2665 100", 28, new Vector2(0, -40), A(.5f, 1), A(.5f, 1), TextAlignmentOptions.Top);
         hpTxt.rectTransform.pivot = new Vector2(0.5f, 1);
         hpTxt.color = new Color(1f, .35f, .55f);
 
+        // Accuracy — top-right
         accTxt = T(cgo, "100.0%", 26, new Vector2(-40, -40), A(1, 1), A(1, 1), TextAlignmentOptions.TopRight);
         accTxt.rectTransform.pivot = new Vector2(1, 1);
         accTxt.color = CYAN;
 
+        // Combo — centre
         comboTxt = T(cgo, "", 72, new Vector2(0, 100), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center);
         comboTxt.color = CYAN; comboTxt.fontStyle = FontStyles.Bold;
 
+        // Fever bar
         feverUIContainer = new GameObject("FeverUIContainer");
         feverUIContainer.transform.SetParent(cgo.transform, false);
         var fContainerRT = feverUIContainer.AddComponent<RectTransform>();
@@ -597,8 +782,7 @@ public class GameManager : MonoBehaviour
         var fBG = new GameObject("FeverBG"); fBG.transform.SetParent(feverUIContainer.transform, false);
         var fBGRt = fBG.AddComponent<RectTransform>();
         fBGRt.anchorMin = A(1, 0.5f); fBGRt.anchorMax = A(1, 0.5f);
-        fBGRt.anchoredPosition = new Vector2(-60, 0);
-        fBGRt.sizeDelta = new Vector2(30, 350);
+        fBGRt.anchoredPosition = new Vector2(-60, 0); fBGRt.sizeDelta = new Vector2(30, 350);
         fBG.AddComponent<Image>().color = new Color(0.1f, 0.1f, 0.2f, 0.8f);
         AddBorder(fBG, new Color(0.5f, 0.5f, 0.6f, 0.5f), 0.3f);
 
@@ -612,23 +796,26 @@ public class GameManager : MonoBehaviour
 
         feverTxt = T(feverUIContainer, "FEVER", 18, new Vector2(-60, 205), A(1, 0.5f), A(1, 0.5f), TextAlignmentOptions.Center);
         feverTxt.color = new Color(1f, 1f, 1f, 0.7f);
-
         feverEnergyTxt = T(feverUIContainer, "0 / 50", 14, new Vector2(-60, -195), A(1, 0.5f), A(1, 0.5f), TextAlignmentOptions.Center);
         feverEnergyTxt.color = Color.white;
 
+        // Result flash
         resultTxt = T(cgo, "", 44, new Vector2(0, 10), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         resultTxt.fontStyle = FontStyles.Bold;
 
+        // Bottom-left labels
         var modeLbl = T(cgo, "NEON SHIFT", 14, new Vector2(16, 50), A(0, 0), A(0, 0), TextAlignmentOptions.BottomLeft);
         modeLbl.color = GetHDR(CYAN); modeLbl.fontStyle = FontStyles.Bold;
-        var diffLbl = T(cgo, "DIFFICULTY: " + currentMode.ToString().ToUpper(), 11, new Vector2(16, 34), A(0, 0), A(0, 0), TextAlignmentOptions.BottomLeft);
-        diffLbl.color = new Color(.6f, .7f, .8f, .7f);
-
+        T(cgo, "DIFFICULTY: " + currentMode.ToString().ToUpper(), 11, new Vector2(16, 34), A(0, 0), A(0, 0), TextAlignmentOptions.BottomLeft)
+            .color = new Color(.6f, .7f, .8f, .7f);
         T(cgo, "ESC = PAUSE", 18, new Vector2(-16, 16), A(1, 0), A(1, 0), TextAlignmentOptions.BottomRight)
             .color = new Color(.4f, .7f, 1f, .3f);
 
-        goPanel = Panel(cgo, new Color(.02f, .02f, .05f, .95f));
+        // ── LIVE SCORING CARD ─────────────────────────────────────────────────
+        BuildLiveCard(cgo);
 
+        // Game Over panel
+        goPanel = Panel(cgo, new Color(.02f, .02f, .05f, .95f));
         goTitle = T(goPanel, "GAME OVER", 88, new Vector2(0, 200), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
         goTitle.color = GetHDR(new Color(1f, .15f, .25f)); goTitle.fontStyle = FontStyles.Bold | FontStyles.Italic;
 
@@ -636,47 +823,36 @@ public class GameManager : MonoBehaviour
         var sBoxRt = statsBox.AddComponent<RectTransform>(); sBoxRt.anchorMin = sBoxRt.anchorMax = A(0.5f, 0.5f);
         sBoxRt.anchoredPosition = new Vector2(0, 30); sBoxRt.sizeDelta = new Vector2(750, 140);
         statsBox.AddComponent<Image>().color = new Color(0.04f, 0.05f, 0.08f, 0.9f);
+        NeonLine(statsBox, new Vector2(-375, 70),  new Vector2(375,   70), GetHDR(CYAN), 1f);
+        NeonLine(statsBox, new Vector2(-375, -70), new Vector2(375,  -70), GetHDR(CYAN), 1f);
+        NeonLine(statsBox, new Vector2(-125, 50),  new Vector2(-125, -50), GetHDR(CYAN), 0.5f);
+        NeonLine(statsBox, new Vector2(125,  50),  new Vector2(125,  -50), GetHDR(CYAN), 0.5f);
 
-        NeonLine(statsBox, new Vector2(-375, 70), new Vector2(375, 70), GetHDR(CYAN), 1f);
-        NeonLine(statsBox, new Vector2(-375, -70), new Vector2(375, -70), GetHDR(CYAN), 1f);
-        NeonLine(statsBox, new Vector2(-125, 50), new Vector2(-125, -50), GetHDR(CYAN), 0.5f);
-        NeonLine(statsBox, new Vector2(125, 50), new Vector2(125, -50), GetHDR(CYAN), 0.5f);
+        var sLbl = T(statsBox, "SCORE",     18, new Vector2(-250, 25),  A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Center); sLbl.color = Color.white; sLbl.fontStyle = FontStyles.Bold;
+        goScore  = T(statsBox, "0",         56, new Vector2(-250, -20), A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Center); goScore.color = GetHDR(CP); goScore.fontStyle = FontStyles.Bold;
+        var aLbl = T(statsBox, "ACCURACY",  18, new Vector2(0, 25),     A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Center); aLbl.color = Color.white; aLbl.fontStyle = FontStyles.Bold;
+        goAcc    = T(statsBox, "0.0%",      56, new Vector2(0, -20),    A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Center); goAcc.color = GetHDR(CG); goAcc.fontStyle = FontStyles.Bold;
+        var cLbl = T(statsBox, "MAX COMBO", 18, new Vector2(250, 25),   A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Center); cLbl.color = Color.white; cLbl.fontStyle = FontStyles.Bold;
+        goCombo  = T(statsBox, "x0",        56, new Vector2(250, -20),  A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Center); goCombo.color = GetHDR(CYAN); goCombo.fontStyle = FontStyles.Bold;
 
-        var sLbl = T(statsBox, "SCORE", 18, new Vector2(-250, 25), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        sLbl.color = Color.white; sLbl.fontStyle = FontStyles.Bold;
-        goScore = T(statsBox, "0", 56, new Vector2(-250, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        goScore.color = GetHDR(CP); goScore.fontStyle = FontStyles.Bold;
-
-        var aLbl = T(statsBox, "ACCURACY", 18, new Vector2(0, 25), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        aLbl.color = Color.white; aLbl.fontStyle = FontStyles.Bold;
-        goAcc = T(statsBox, "0.0%", 56, new Vector2(0, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        goAcc.color = GetHDR(CG); goAcc.fontStyle = FontStyles.Bold;
-
-        var cLbl = T(statsBox, "MAX COMBO", 18, new Vector2(250, 25), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        cLbl.color = Color.white; cLbl.fontStyle = FontStyles.Bold;
-        goCombo = T(statsBox, "x0", 56, new Vector2(250, -20), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        goCombo.color = GetHDR(CYAN); goCombo.fontStyle = FontStyles.Bold;
-
-        NeonBtn(goPanel, "PLAY AGAIN", CYAN, new Vector2(-160, -95), () => Restart());
-        NeonBtn(goPanel, "MENU", new Color(1f, 0.2f, 0.4f), new Vector2(160, -95), () => MainMenu());
-
+        NeonBtn(goPanel, "PLAY AGAIN", CYAN,                      new Vector2(-160, -95), () => Restart());
+        NeonBtn(goPanel, "MENU",       new Color(1f, 0.2f, 0.4f), new Vector2(160,  -95), () => MainMenu());
         goPanel.SetActive(false);
 
+        // Pause panel
         pausePanel = Panel(cgo, new Color(.01f, .02f, .08f, .93f));
         NeonLine(pausePanel, new Vector2(-640, 358), new Vector2(640, 358), GetHDR(CYAN), 1f);
-        var pauseTitle = T(pausePanel, "PAUSED", 90, new Vector2(0, 210), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
+        var pauseTitle = T(pausePanel, "PAUSED", 90, new Vector2(0, 210), A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Center);
         pauseTitle.color = GetHDR(CYAN); pauseTitle.fontStyle = FontStyles.Bold;
-
-        T(pausePanel, "PRESS ESC TO RESUME", 18, new Vector2(0, 140), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center)
+        T(pausePanel, "PRESS ESC TO RESUME", 18, new Vector2(0, 140), A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Center)
             .color = new Color(.5f, .7f, .9f, .7f);
-
-        PauseBtn(pausePanel, "RESUME TRACK", CYAN, new Vector2(0, 60), () => TogglePause());
-        PauseBtn(pausePanel, "RESTART TRACK", new Color(.1f, 1f, .4f), new Vector2(0, -20), () => Restart());
-        PauseBtn(pausePanel, "QUIT TO MENU", new Color(.4f, .5f, .6f), new Vector2(0, -100), () => MainMenu());
-
+        PauseBtn(pausePanel, "RESUME TRACK",  CYAN,                     new Vector2(0,  60),  () => TogglePause());
+        PauseBtn(pausePanel, "RESTART TRACK", new Color(.1f, 1f, .4f),  new Vector2(0, -20),  () => Restart());
+        PauseBtn(pausePanel, "QUIT TO MENU",  new Color(.4f, .5f, .6f), new Vector2(0, -100), () => MainMenu());
         pausePanel.SetActive(false);
     }
 
+    // ── Utility helpers ───────────────────────────────────────────────────────
     static Vector2 A(float x, float y) => new Vector2(x, y);
 
     TextMeshProUGUI T(GameObject p, string txt, int sz, Vector2 pos, Vector2 aMin, Vector2 aMax, TextAlignmentOptions al)
@@ -701,9 +877,8 @@ public class GameManager : MonoBehaviour
         var rt = go.AddComponent<RectTransform>(); rt.anchorMin = rt.anchorMax = A(.5f, .5f);
         Vector2 mid = (from + to) / 2f; rt.anchoredPosition = mid;
         rt.sizeDelta = new Vector2(Vector2.Distance(from, to), 1.5f);
-        float ang = Mathf.Atan2(to.y - from.y, to.x - from.x) * Mathf.Rad2Deg;
-        rt.localRotation = Quaternion.Euler(0, 0, ang);
-        var img = go.AddComponent<Image>(); img.color = new Color(col.r, col.g, col.b, alpha);
+        rt.localRotation = Quaternion.Euler(0, 0, Mathf.Atan2(to.y - from.y, to.x - from.x) * Mathf.Rad2Deg);
+        go.AddComponent<Image>().color = new Color(col.r, col.g, col.b, alpha);
     }
 
     void NeonBtn(GameObject p, string lbl, Color col, Vector2 pos, UnityEngine.Events.UnityAction cb)
@@ -712,10 +887,8 @@ public class GameManager : MonoBehaviour
         var rt = go.AddComponent<RectTransform>(); rt.anchorMin = rt.anchorMax = A(.5f, .5f);
         rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(250, 54);
         var img = go.AddComponent<Image>(); img.color = new Color(col.r * .08f, col.g * .08f, col.b * .08f, .9f);
-
         AddBorder(go, GetHDR(col), 1f);
         var btn = go.AddComponent<Button>(); btn.targetGraphic = img; btn.onClick.AddListener(cb);
-
         Label(go, lbl, 26, GetHDR(col));
     }
 
@@ -739,7 +912,7 @@ public class GameManager : MonoBehaviour
         var ov = new GameObject("Border"); ov.transform.SetParent(go.transform, false);
         var rt = ov.AddComponent<RectTransform>(); rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
         rt.offsetMin = new Vector2(-1, -1); rt.offsetMax = new Vector2(1, 1);
-        var img = ov.AddComponent<Image>(); img.color = Color.clear;
+        ov.AddComponent<Image>().color = Color.clear;
         var O = go.AddComponent<Outline>(); O.effectColor = new Color(col.r, col.g, col.b, alpha); O.effectDistance = new Vector2(2, -2);
     }
 
@@ -758,7 +931,7 @@ public class GameManager : MonoBehaviour
         int sr = 44100, n = Mathf.RoundToInt(sr * dur); float[] d = new float[n];
         for (int i = 0; i < n; i++)
         {
-            float t = (float)i / sr; float e = Mathf.Exp(-t * 18f);
+            float t = (float)i / sr, e = Mathf.Exp(-t * 18f);
             d[i] = noise ? (Random.value * 2f - 1f) * e * .5f : Mathf.Sin(2f * Mathf.PI * freq * t) * e * .7f;
         }
         var c = AudioClip.Create("b", n, 1, sr, false); c.SetData(d, 0); return c;

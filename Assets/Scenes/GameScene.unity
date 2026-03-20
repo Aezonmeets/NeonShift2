@@ -817,6 +817,7 @@ MonoBehaviour:
   isFeverMode: 0
   backgroundImage: {fileID: 265051313471249744, guid: 5fc179aa7acf16d4095cc0961b8273c2, type: 3}
   backgroundBrightness: 0.844
+  liveScoringIcon: {fileID: 2527328596213805014, guid: f6f8a1f18a009e240abd216498d5012d, type: 3}
   allSongs:
   - songName: From the start - Laufey
     audioClip: {fileID: 8300000, guid: 112f153d8d4f58d418d2e69289ed30cc, type: 3}

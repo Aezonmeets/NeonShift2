@@ -13,8 +13,8 @@ public struct LeaderboardEntry
     public int    maxCombo;
     public string mode;
     public string accuracy;
-    public string date;         // "MM/dd HH:mm"
-    public int    avatarIndex;  // 0-7, matches the slot the player chose in the main menu
+    public string date;         
+    public int    avatarIndex;  
 }
 
 public class LeaderboardManager : MonoBehaviour
@@ -44,22 +44,14 @@ public class LeaderboardManager : MonoBehaviour
     List<LeaderboardEntry> entries = new List<LeaderboardEntry>();
 
     // ── AVATAR SPRITE CACHE ───────────────────────────────────────────────
-    // Static so it survives even if the MonoBehaviour instance is recreated.
-    // MainMenuManager.Build() calls SetAvatarSprites() to populate this.
-    // LeaderboardScene reads from it via GetCachedAvatarSprite().
     static Sprite[] _cachedAvatarSprites = new Sprite[8];
 
-    // Non-static backing kept for compatibility with old code that wrote to this directly.
     [HideInInspector] public Sprite[] avatarSprites
     {
         get  => _cachedAvatarSprites;
         set  { _cachedAvatarSprites = value; }
     }
 
-    /// <summary>
-    /// Called by MainMenuManager.Build() to register the 8 inspector sprites.
-    /// Uses a static cache so the sprites survive across scene loads.
-    /// </summary>
     public void SetAvatarSprites(Sprite[] sprites)
     {
         if (sprites == null) return;
@@ -67,7 +59,6 @@ public class LeaderboardManager : MonoBehaviour
             _cachedAvatarSprites[i] = sprites[i];
     }
 
-    /// <summary>Returns the cached avatar sprite for slot index (0-7).</summary>
     public static Sprite GetCachedAvatarSprite(int index)
     {
         if (_cachedAvatarSprites == null || index < 0 || index >= _cachedAvatarSprites.Length)
@@ -82,47 +73,65 @@ public class LeaderboardManager : MonoBehaviour
         _instance = this;
         DontDestroyOnLoad(gameObject);
         Load();
-        Debug.Log($"[LeaderboardManager] Awake — loaded {entries.Count} entries from disk.");
     }
 
     // ── PUBLIC API ────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Submit a score entry. Call this from GameManager when the round ends.
-    /// Example: LeaderboardManager.Instance.TrySubmit("Easy", score, maxCombo, accuracy);
-    /// </summary>
     public void TrySubmit(string mode, int score, int maxCombo, float accuracy)
     {
         string playerName = PlayerPrefs.GetString("PlayerName", "PLAYER");
         if (playerName.Length > 12) playerName = playerName.Substring(0, 12);
 
         int avatarIdx = PlayerPrefs.GetInt("AvatarIndex", 0);
+        int existingIndex = entries.FindIndex(e => e.name == playerName && e.mode == mode);
 
-        var entry = new LeaderboardEntry
+        if (existingIndex >= 0)
         {
-            name        = playerName,
-            score       = score,
-            maxCombo    = maxCombo,
-            mode        = mode,
-            accuracy    = $"{accuracy:F1}%",
-            date        = DateTime.Now.ToString("MM/dd HH:mm"),
-            avatarIndex = avatarIdx
-        };
+            if (score > entries[existingIndex].score)
+            {
+                var entry = entries[existingIndex];
+                entry.score = score;
+                entry.maxCombo = maxCombo;
+                entry.accuracy = $"{accuracy:F1}%";
+                entry.date = DateTime.Now.ToString("MM/dd HH:mm");
+                entry.avatarIndex = avatarIdx;
+                entries[existingIndex] = entry; 
+            }
+        }
+        else
+        {
+            var entry = new LeaderboardEntry
+            {
+                name        = playerName,
+                score       = score,
+                maxCombo    = maxCombo,
+                mode        = mode,
+                accuracy    = $"{accuracy:F1}%",
+                date        = DateTime.Now.ToString("MM/dd HH:mm"),
+                avatarIndex = avatarIdx
+            };
+            entries.Add(entry);
+        }
 
-        entries.Add(entry);
+        // GUARANTEE: Force Sort strictly descending
         entries.Sort((a, b) => b.score.CompareTo(a.score));
+        
         if (entries.Count > MAX_ENTRIES)
             entries.RemoveRange(MAX_ENTRIES, entries.Count - MAX_ENTRIES);
 
         Save();
-        Debug.Log($"[LeaderboardManager] Score saved — Player: {playerName} | Mode: {mode} | Score: {score} | Accuracy: {accuracy:F1}% | Avatar: {avatarIdx}");
     }
 
-    /// <summary>Overload without maxCombo.</summary>
     public void TrySubmit(string mode, int score, float accuracy)
         => TrySubmit(mode, score, 0, accuracy);
 
-    public List<LeaderboardEntry> GetAll() => new List<LeaderboardEntry>(entries);
+    public List<LeaderboardEntry> GetAll() 
+    {
+        var list = new List<LeaderboardEntry>(entries);
+        // Guarantee sorted on fetch
+        list.Sort((a, b) => b.score.CompareTo(a.score));
+        return list;
+    }
 
     public List<LeaderboardEntry> GetForMode(string mode)
     {
@@ -130,24 +139,18 @@ public class LeaderboardManager : MonoBehaviour
         foreach (var e in entries)
             if (string.Equals(e.mode, mode, StringComparison.OrdinalIgnoreCase))
                 list.Add(e);
+                
+        // Guarantee sorted descending by score natively
+        list.Sort((a, b) => b.score.CompareTo(a.score));
         return list;
     }
 
-    /// <summary>
-    /// Force a fresh read from PlayerPrefs.
-    /// Called by LeaderboardScene on Start() to guarantee the latest data is shown.
-    /// </summary>
-    public void ReloadFromDisk()
-    {
-        Load();
-        Debug.Log($"[LeaderboardManager] ReloadFromDisk — {entries.Count} entries available.");
-    }
+    public void ReloadFromDisk() { Load(); }
 
     public void ClearAll()
     {
         entries.Clear();
         Save();
-        Debug.Log("[LeaderboardManager] All entries cleared.");
     }
 
     // ── PERSISTENCE ───────────────────────────────────────────────────────
@@ -156,14 +159,11 @@ public class LeaderboardManager : MonoBehaviour
         string json = JsonUtility.ToJson(new LBData { entries = entries.ToArray() });
         PlayerPrefs.SetString(KEY, json);
         PlayerPrefs.Save();
-        Debug.Log($"[LeaderboardManager] Saved {entries.Count} entries to PlayerPrefs.");
     }
 
     void Load()
     {
         string json = PlayerPrefs.GetString(KEY, "");
-
-        // Migrate from v1 key if v2 has nothing
         if (string.IsNullOrEmpty(json))
             json = PlayerPrefs.GetString("Leaderboard_v1", "");
 
@@ -174,7 +174,11 @@ public class LeaderboardManager : MonoBehaviour
             {
                 var data = JsonUtility.FromJson<LBData>(json);
                 if (data?.entries != null)
+                {
                     entries = new List<LeaderboardEntry>(data.entries);
+                    // FORCE sort immediately on load to prevent any past desync bugs from carrying over
+                    entries.Sort((a, b) => b.score.CompareTo(a.score));
+                }
             }
             catch (Exception ex)
             {
