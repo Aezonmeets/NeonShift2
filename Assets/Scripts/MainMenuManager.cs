@@ -8,18 +8,18 @@ using System.Collections.Generic;
 
 public class MainMenuManager : MonoBehaviour
 {
-    static readonly Color CYAN = new Color(0f, 0.92f, 1f);
-    static readonly Color MAGENTA = new Color(1f, 0.15f, 0.75f);
+    static readonly Color CYAN    = new Color(0f,  0.92f, 1f);
+    static readonly Color MAGENTA = new Color(1f,  0.15f, 0.75f);
     static readonly Color DARK_BG = new Color(0.04f, 0.06f, 0.10f);
 
     static readonly Color[] ModeBorderColors = {
-        new Color(0.1f, 1f, 0.4f),    // Easy - green
-        new Color(1f, 0.85f, 0.1f),   // Medium - yellow  
-        new Color(1f, 0.45f, 0.1f),   // Hard - orange-red
-        new Color(0.9f, 0.1f, 0.3f),  // Endless - red/pink
+        new Color(0.1f,  1f,   0.4f),   // Easy   - green
+        new Color(1f,   0.85f, 0.1f),   // Medium - yellow
+        new Color(1f,   0.45f, 0.1f),   // Hard   - orange-red
+        new Color(0.9f,  0.1f, 0.3f),   // Endless - red/pink
     };
 
-    static readonly string[] ModeLabels = { "EASY", "MEDIUM", "HARD", "ENDLESS" };
+    static readonly string[] ModeLabels  = { "EASY", "MEDIUM", "HARD", "ENDLESS" };
     static readonly string[] ModeFolders = { "Easy", "Medium", "Hard", "Endless" };
 
     [Header("Neon Settings")]
@@ -32,6 +32,17 @@ public class MainMenuManager : MonoBehaviour
 
     [Header("Assign Your Icons Here!")]
     public Sprite easyIcon;
+
+    [Header("Assign Your Avatars Here!")]
+    [Tooltip("Drag 8 avatar sprites from your Project window into these slots.")]
+    public Sprite avatar1;
+    public Sprite avatar2;
+    public Sprite avatar3;
+    public Sprite avatar4;
+    public Sprite avatar5;
+    public Sprite avatar6;
+    public Sprite avatar7;
+    public Sprite avatar8;
     public Sprite mediumIcon;
     public Sprite hardIcon;
     public Sprite endlessIcon;
@@ -42,39 +53,64 @@ public class MainMenuManager : MonoBehaviour
     AudioSource music;
     AudioSource sfx;
 
-    GameObject settingsPanel;
-    GameObject nameEntryPanel;
-    GameObject songSelectionPanel;
-    GameObject tutorialPanel;
+    GameObject    settingsPanel;
+    GameObject    nameEntryPanel;
+    GameObject    songSelectionPanel;
+    GameObject    tutorialPanel;
     RectTransform songListContentRT;
-    TMP_InputField nameInput;
+    TMP_InputField nameInput;           // name entry panel input (kept as-is)
+    TMP_InputField settingsNameInput;   // inline name editor inside settings panel
+    TMP_InputField topBarNameInput;     // editable name field in the top bar
     int pendingModeIndex = 0;
+
+    // ── PROFILE CARD ──────────────────────────────────────────────────────────
+    Image      avatarDisplay;      // sprite image shown in the top-bar circle
+    GameObject avatarPickerPanel;  // popup grid of the 8 avatar choices
+    int        selectedAvatarIndex; // 0-7, saved in PlayerPrefs "AvatarIndex"
+    TextMeshProUGUI persistentPlayerNameTxt; // points at topBarNameInput text component
+
+    // Returns the inspector-assigned sprite for slot index (0-7).
+    Sprite GetAvatarSprite(int index)
+    {
+        switch (index)
+        {
+            case 0: return avatar1;
+            case 1: return avatar2;
+            case 2: return avatar3;
+            case 3: return avatar4;
+            case 4: return avatar5;
+            case 5: return avatar6;
+            case 6: return avatar7;
+            case 7: return avatar8;
+            default: return null;
+        }
+    }
 
     // --- TUTORIAL VARIABLES ---
     TextMeshProUGUI tutInstrTxt;
-    RectTransform tutTrackContainer;
-    RectTransform tutTile;
-    Image tutTileImg;
-    Image[] tutKeyImgs = new Image[4];
-    Coroutine activeTutorial;
+    RectTransform   tutTrackContainer;
+    RectTransform   tutTile;
+    Image           tutTileImg;
+    Image[]         tutKeyImgs = new Image[4];
+    Coroutine       activeTutorial;
 
     void Start()
     {
         if (Camera.main != null)
         {
             Camera.main.backgroundColor = DARK_BG;
-            Camera.main.clearFlags = CameraClearFlags.SolidColor;
-            Camera.main.allowHDR = true;
+            Camera.main.clearFlags      = CameraClearFlags.SolidColor;
+            Camera.main.allowHDR        = true;
         }
 
-        music = gameObject.AddComponent<AudioSource>();
-        music.loop = true;
+        music        = gameObject.AddComponent<AudioSource>();
+        music.loop   = true;
         music.volume = PlayerPrefs.GetFloat("MusicVolume", 0.55f);
         if (menuMusic != null) { music.clip = menuMusic; music.Play(); }
 
-        sfx = gameObject.AddComponent<AudioSource>();
+        sfx             = gameObject.AddComponent<AudioSource>();
         sfx.playOnAwake = false;
-        sfx.volume = PlayerPrefs.GetFloat("SFXVolume", 0.8f);
+        sfx.volume      = PlayerPrefs.GetFloat("SFXVolume", 0.8f);
 
         Build();
     }
@@ -88,6 +124,15 @@ public class MainMenuManager : MonoBehaviour
     }
 
     Color GetHDR(Color c) => new Color(c.r * glowIntensity, c.g * glowIntensity, c.b * glowIntensity, 1f);
+
+    // ── NAME SYNC ────────────────────────────────────────────────────────────
+    // Drives the top-bar input field without triggering its onValueChanged,
+    // preventing feedback loops when syncing from other inputs.
+    void UpdatePersistentNameDisplay(string playerName)
+    {
+        string display = string.IsNullOrEmpty(playerName) ? "" : playerName;
+        if (topBarNameInput != null) topBarNameInput.SetTextWithoutNotify(display);
+    }
 
     void Build()
     {
@@ -105,35 +150,37 @@ public class MainMenuManager : MonoBehaviour
         }
 
         var cgo = new GameObject("Canvas");
-        var cv = cgo.AddComponent<Canvas>();
-
-        cv.renderMode = RenderMode.ScreenSpaceCamera;
-        cv.worldCamera = Camera.main;
+        var cv  = cgo.AddComponent<Canvas>();
+        cv.renderMode    = RenderMode.ScreenSpaceCamera;
+        cv.worldCamera   = Camera.main;
         cv.planeDistance = 10f;
-        cv.sortingOrder = 10;
+        cv.sortingOrder  = 10;
 
         var sc = cgo.AddComponent<CanvasScaler>();
-        sc.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        sc.uiScaleMode         = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         sc.referenceResolution = new Vector2(1280, 720);
-        sc.matchWidthOrHeight = 0.5f;
+        sc.matchWidthOrHeight  = 0.5f;
         cgo.AddComponent<GraphicRaycaster>();
 
-        var bg = new GameObject("BG"); bg.transform.SetParent(cgo.transform, false);
+        // Background
+        var bg   = new GameObject("BG"); bg.transform.SetParent(cgo.transform, false);
         var bgRT = bg.AddComponent<RectTransform>();
         bgRT.anchorMin = Vector2.zero; bgRT.anchorMax = Vector2.one;
         bgRT.offsetMin = bgRT.offsetMax = Vector2.zero;
         bg.AddComponent<Image>().color = DARK_BG;
 
-        HBar(cgo, new Color(CYAN.r, CYAN.g, CYAN.b, 0.3f), A(0, 1), A(1, 1), 0, -45, 1f);
-        var topLogo = T(cgo, "↺ NEON SHIFT", 16, new Vector2(30, -22), A(0, 1), A(0, 1), TextAlignmentOptions.Left);
+        // Top bar
+        HBar(cgo, new Color(CYAN.r, CYAN.g, CYAN.b, 0.3f), A(0,1), A(1,1), 0, -45, 1f);
+        var topLogo = T(cgo, "↺ NEON SHIFT", 16, new Vector2(30, -22), A(0,1), A(0,1), TextAlignmentOptions.Left);
         topLogo.color = CYAN; topLogo.fontStyle = FontStyles.Bold;
 
+        // Settings gear — top-right, unchanged position
         var iconBtn = new GameObject("TopIcon_Settings");
         iconBtn.transform.SetParent(cgo.transform, false);
         var irt = iconBtn.AddComponent<RectTransform>();
-        irt.anchorMin = irt.anchorMax = A(1, 1);
+        irt.anchorMin = irt.anchorMax = A(1,1);
         irt.anchoredPosition = new Vector2(-40, -22);
-        irt.sizeDelta = new Vector2(35, 35);
+        irt.sizeDelta        = new Vector2(35, 35);
 
         var iImg = iconBtn.AddComponent<Image>();
         iImg.color = new Color(0.1f, 0.15f, 0.2f, 0.8f);
@@ -146,20 +193,143 @@ public class MainMenuManager : MonoBehaviour
         innerRt.offsetMin = innerRt.offsetMax = Vector2.zero;
         var actualImage = innerImgObj.AddComponent<Image>();
         actualImage.sprite = settingsIcon;
-        actualImage.color = CYAN; actualImage.preserveAspect = true;
+        actualImage.color  = CYAN; actualImage.preserveAspect = true;
 
         var topBtn = iconBtn.AddComponent<Button>();
         AddButtonSounds(topBtn);
         iconBtn.AddComponent<NeonButtonJuice>();
-
         topBtn.onClick.AddListener(() => {
-            if (settingsPanel != null) settingsPanel.GetComponent<NeonPanelAnim>().Toggle();
-            if (nameEntryPanel != null) nameEntryPanel.GetComponent<NeonPanelAnim>().Hide();
+            if (settingsPanel      != null) settingsPanel.GetComponent<NeonPanelAnim>().Toggle();
+            if (nameEntryPanel     != null) nameEntryPanel.GetComponent<NeonPanelAnim>().Hide();
             if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Hide();
         });
 
-        float titleY = 200f;
+        // ── PROFILE CARD (top-bar) ───────────────────────────────────────────
+        // Layout anchored to TOP-RIGHT, sitting immediately left of the gear:
+        //   pos(-245,-22)  size(190,35)
+        //   [ ● avatar 31px ] [ name input field ]
+        // Clicking the avatar opens the preset-avatar picker popup.
 
+        // Outer card container
+        var profileCard = new GameObject("ProfileCard");
+        profileCard.transform.SetParent(cgo.transform, false);
+        var pcRT = profileCard.AddComponent<RectTransform>();
+        pcRT.anchorMin        = pcRT.anchorMax = A(1f, 1f);
+        pcRT.anchoredPosition = new Vector2(-245f, -22f);
+        pcRT.sizeDelta        = new Vector2(190f, 35f);
+
+        var pcImg = profileCard.AddComponent<Image>();
+        pcImg.color = new Color(0.06f, 0.09f, 0.15f, 0.82f);
+        pcImg.raycastTarget = false;
+        var pcOutline = profileCard.AddComponent<Outline>();
+        pcOutline.effectColor    = new Color(MAGENTA.r, MAGENTA.g, MAGENTA.b, 0.50f);
+        pcOutline.effectDistance = new Vector2(1f, -1f);
+
+        // ── Avatar circle button (left side of card) ────────────────────────
+        // Built-in Unity circle sprite used for masking
+        var knob = MakeCircleSprite();
+
+        // ── Top-bar avatar: circle mask container ───────────────────────
+        var avatarBtn = new GameObject("AvatarButton");
+        avatarBtn.transform.SetParent(profileCard.transform, false);
+        var abRT = avatarBtn.AddComponent<RectTransform>();
+        abRT.anchorMin        = new Vector2(0f, 0.5f);
+        abRT.anchorMax        = new Vector2(0f, 0.5f);
+        abRT.anchoredPosition = new Vector2(19f, 0f);
+        abRT.sizeDelta        = new Vector2(33f, 33f);
+
+        // Circle shape image — this IS the mask
+        var abCircle = avatarBtn.AddComponent<Image>();
+        abCircle.sprite           = knob;
+        abCircle.color            = new Color(0.15f, 0.18f, 0.24f, 1f); // dark ring bg
+        abCircle.type             = Image.Type.Simple;
+        abCircle.preserveAspect   = false;
+        var abMask = avatarBtn.AddComponent<Mask>();
+        abMask.showMaskGraphic    = true; // keep the circle visible as bg
+
+        // Avatar sprite child — clipped to circle by the mask above
+        var abSprGo = new GameObject("AvatarImg");
+        abSprGo.transform.SetParent(avatarBtn.transform, false);
+        var abSprRT = abSprGo.AddComponent<RectTransform>();
+        abSprRT.anchorMin = Vector2.zero; abSprRT.anchorMax = Vector2.one;
+        abSprRT.offsetMin = new Vector2(2f, 2f); abSprRT.offsetMax = new Vector2(-2f, -2f);
+        avatarDisplay = abSprGo.AddComponent<Image>();
+        avatarDisplay.preserveAspect = true;
+
+        // Button lives on the outer circle container
+        var avBtnComp = avatarBtn.AddComponent<Button>();
+        avBtnComp.targetGraphic = abCircle;
+        var avColors = avBtnComp.colors;
+        avColors.highlightedColor = new Color(0.25f, 0.28f, 0.36f, 1f);
+        avColors.pressedColor     = new Color(0.12f, 0.14f, 0.20f, 1f);
+        avBtnComp.colors = avColors;
+        AddButtonSounds(avBtnComp);
+        avatarBtn.AddComponent<NeonButtonJuice>();
+        avBtnComp.onClick.AddListener(() => {
+            if (avatarPickerPanel != null)
+                avatarPickerPanel.SetActive(!avatarPickerPanel.activeSelf);
+        });
+
+        // ── Name input field (right of avatar) ──────────────────────────────
+        var tbInputGo = new GameObject("TopBarNameInput");
+        tbInputGo.transform.SetParent(profileCard.transform, false);
+        var tbRT = tbInputGo.AddComponent<RectTransform>();
+        tbRT.anchorMin = Vector2.zero;
+        tbRT.anchorMax = Vector2.one;
+        tbRT.offsetMin = new Vector2(39f,  2f);
+        tbRT.offsetMax = new Vector2(-6f, -2f);
+
+        var tbImg = tbInputGo.AddComponent<Image>();
+        tbImg.color = new Color(0f, 0f, 0f, 0f);   // transparent — card bg is enough
+
+        // Editable text
+        var tbTextGo = new GameObject("Text");
+        tbTextGo.transform.SetParent(tbInputGo.transform, false);
+        var tbTextRT = tbTextGo.AddComponent<RectTransform>();
+        tbTextRT.anchorMin = Vector2.zero; tbTextRT.anchorMax = Vector2.one;
+        tbTextRT.offsetMin = new Vector2(2f, 0f); tbTextRT.offsetMax = new Vector2(-2f, 0f);
+        var tbTmp = tbTextGo.AddComponent<TextMeshProUGUI>();
+        tbTmp.fontSize  = 13;
+        tbTmp.fontStyle = FontStyles.Bold;
+        tbTmp.alignment = TextAlignmentOptions.Left;
+        tbTmp.color     = Color.white;
+
+        persistentPlayerNameTxt = tbTmp;
+
+        topBarNameInput = tbInputGo.AddComponent<TMP_InputField>();
+        topBarNameInput.targetGraphic    = tbImg;
+        topBarNameInput.textComponent    = tbTmp;
+        topBarNameInput.characterLimit   = 12;
+        topBarNameInput.customCaretColor = true;
+        topBarNameInput.caretColor       = MAGENTA;
+        topBarNameInput.selectionColor   = new Color(MAGENTA.r, MAGENTA.g, MAGENTA.b, 0.35f);
+
+        string savedTopBarName = PlayerPrefs.GetString("PlayerName", "");
+        topBarNameInput.SetTextWithoutNotify(savedTopBarName);
+
+        topBarNameInput.onValueChanged.AddListener((newVal) => {
+            PlayerPrefs.SetString("PlayerName", newVal);
+            if (settingsNameInput != null) settingsNameInput.SetTextWithoutNotify(newVal);
+            if (nameInput         != null) nameInput.SetTextWithoutNotify(newVal);
+        });
+
+        // Apply the saved avatar and share the sprite array with LeaderboardManager
+        selectedAvatarIndex = PlayerPrefs.GetInt("AvatarIndex", 0);
+        ApplyAvatar(selectedAvatarIndex);
+
+        // Register the 8 inspector sprites with LeaderboardManager.
+        // SetAvatarSprites() uses a static cache so they survive scene transitions.
+        LeaderboardManager.Instance.SetAvatarSprites(new Sprite[8]
+        {
+            avatar1, avatar2, avatar3, avatar4,
+            avatar5, avatar6, avatar7, avatar8
+        });
+
+        // Build the avatar picker popup (hidden by default)
+        avatarPickerPanel = CreateAvatarPickerPanel(cgo);
+        // ── END PROFILE CARD ─────────────────────────────────────────────────
+        // Title group
+        float titleY    = 200f;
         var titleParent = new GameObject("TitleGroup");
         titleParent.transform.SetParent(cgo.transform, false);
         var tpRt = titleParent.AddComponent<RectTransform>();
@@ -167,16 +337,16 @@ public class MainMenuManager : MonoBehaviour
         tpRt.anchoredPosition = new Vector2(0, titleY);
         titleParent.AddComponent<NeonBreathingAnim>();
 
-        var t1 = T(titleParent, "SHIFT", 95, new Vector2(-160, 0), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Right);
+        var t1 = T(titleParent, "SHIFT", 95, new Vector2(-160, 0), A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Right);
         t1.color = GetHDR(CYAN); t1.fontStyle = FontStyles.Bold;
 
-        var t2 = T(titleParent, "NEON", 95, new Vector2(150, 0), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Left);
+        var t2 = T(titleParent, "NEON", 95, new Vector2(150, 0), A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Left);
         t2.color = GetHDR(MAGENTA); t2.fontStyle = FontStyles.Bold;
 
-        var sub = T(titleParent, "4-LANE RHYTHM GAME", 18, new Vector2(0, -70), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
-        sub.color = CYAN; sub.fontStyle = FontStyles.Bold;
-        sub.characterSpacing = 5f;
+        var sub = T(titleParent, "4-LANE RHYTHM GAME", 18, new Vector2(0, -70), A(.5f,.5f), A(.5f,.5f), TextAlignmentOptions.Center);
+        sub.color = CYAN; sub.fontStyle = FontStyles.Bold; sub.characterSpacing = 5f;
 
+        // Mode buttons
         Sprite[] modeSprites = { easyIcon, mediumIcon, hardIcon, endlessIcon };
         float startY = 40f, gap = -55f;
 
@@ -188,8 +358,8 @@ public class MainMenuManager : MonoBehaviour
                     pendingModeIndex = mi;
                     PopulateSongList(mi);
                     if (songSelectionPanel != null) songSelectionPanel.GetComponent<NeonPanelAnim>().Show();
-                    if (settingsPanel != null) settingsPanel.GetComponent<NeonPanelAnim>().Hide();
-                    if (nameEntryPanel != null) nameEntryPanel.GetComponent<NeonPanelAnim>().Hide();
+                    if (settingsPanel      != null) settingsPanel.GetComponent<NeonPanelAnim>().Hide();
+                    if (nameEntryPanel     != null) nameEntryPanel.GetComponent<NeonPanelAnim>().Hide();
                 });
         }
 
@@ -199,14 +369,14 @@ public class MainMenuManager : MonoBehaviour
         ModeButton(cgo, "QUIT GAME", quitIcon, new Color(0.4f, 0.45f, 0.55f),
             new Vector2(0, startY + gap * 5), 0.5f, () => Application.Quit());
 
-        tutorialPanel = CreateTutorialPanel(cgo);
-        settingsPanel = CreateSettingsPanel(cgo);
-        nameEntryPanel = CreateNameEntryPanel(cgo);
+        tutorialPanel      = CreateTutorialPanel(cgo);
+        settingsPanel      = CreateSettingsPanel(cgo);
+        nameEntryPanel     = CreateNameEntryPanel(cgo);
         songSelectionPanel = CreateSongSelectionPanel(cgo);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // ── INTERACTIVE TUTORIAL LOGIC 
+    // ── INTERACTIVE TUTORIAL LOGIC
     // ──────────────────────────────────────────────────────────────────────────
     GameObject CreateTutorialPanel(GameObject canvasGo)
     {
@@ -220,13 +390,13 @@ public class MainMenuManager : MonoBehaviour
         img.color = new Color(0.02f, 0.03f, 0.05f, 0.98f);
         panel.AddComponent<GraphicRaycaster>();
 
-        tutInstrTxt = T(panel, "WELCOME", 36, new Vector2(0, 250), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center);
+        tutInstrTxt = T(panel, "WELCOME", 36, new Vector2(0, 250), A(0.5f,0.5f), A(0.5f,0.5f), TextAlignmentOptions.Center);
         tutInstrTxt.color = GetHDR(CYAN);
 
         var tContainer = new GameObject("TrackContainer");
         tContainer.transform.SetParent(panel.transform, false);
         tutTrackContainer = tContainer.AddComponent<RectTransform>();
-        tutTrackContainer.anchorMin = tutTrackContainer.anchorMax = A(0.5f, 0.5f);
+        tutTrackContainer.anchorMin = tutTrackContainer.anchorMax = A(0.5f,0.5f);
         tutTrackContainer.anchoredPosition = Vector2.zero;
         tutTrackContainer.sizeDelta = new Vector2(600, 600);
 
@@ -234,28 +404,28 @@ public class MainMenuManager : MonoBehaviour
         for (int i = 0; i < 5; i++)
         {
             float xPos = -160f + (i * 80f);
-            var line = new GameObject("Line_" + i);
+            var line   = new GameObject("Line_" + i);
             line.transform.SetParent(tutTrackContainer, false);
             var rt = line.AddComponent<RectTransform>();
-            rt.anchorMin = rt.anchorMax = A(0.5f, 0.5f);
+            rt.anchorMin = rt.anchorMax = A(0.5f,0.5f);
             rt.anchoredPosition = new Vector2(xPos, 0);
-            rt.sizeDelta = new Vector2(2, 500);
-            line.AddComponent<Image>().color = new Color(1, 1, 1, 0.1f);
+            rt.sizeDelta        = new Vector2(2, 500);
+            line.AddComponent<Image>().color = new Color(1,1,1,0.1f);
         }
 
         var hitLine = new GameObject("HitLine");
         hitLine.transform.SetParent(tutTrackContainer, false);
         var hlRT = hitLine.AddComponent<RectTransform>();
-        hlRT.anchorMin = hlRT.anchorMax = A(0.5f, 0.5f);
+        hlRT.anchorMin = hlRT.anchorMax = A(0.5f,0.5f);
         hlRT.anchoredPosition = new Vector2(0, -100);
-        hlRT.sizeDelta = new Vector2(340, 4);
-        hitLine.AddComponent<Image>().color = new Color(1, 1, 1, 0.6f);
+        hlRT.sizeDelta        = new Vector2(340, 4);
+        hitLine.AddComponent<Image>().color = new Color(1,1,1,0.6f);
 
-        string[] keyNames = { "D", "F", "J", "K" };
-        Color[] keyColors = {
+        string[] keyNames  = { "D", "F", "J", "K" };
+        Color[]  keyColors = {
             new Color(1.0f, 0.05f, 0.6f),
             new Color(1.0f, 0.95f, 0.0f),
-            new Color(0.2f, 1.0f, 0.1f),
+            new Color(0.2f, 1.0f,  0.1f),
             new Color(0.0f, 0.85f, 1.0f),
         };
 
@@ -264,35 +434,29 @@ public class MainMenuManager : MonoBehaviour
             var keyObj = new GameObject("Key_" + i);
             keyObj.transform.SetParent(tutTrackContainer, false);
             var rt = keyObj.AddComponent<RectTransform>();
-            rt.anchorMin = rt.anchorMax = A(0.5f, 0.5f);
+            rt.anchorMin = rt.anchorMax = A(0.5f,0.5f);
             rt.anchoredPosition = new Vector2(laneX[i], -150);
-            rt.sizeDelta = new Vector2(60, 40);
-
+            rt.sizeDelta        = new Vector2(60, 40);
             tutKeyImgs[i] = keyObj.AddComponent<Image>();
             tutKeyImgs[i].color = new Color(0.1f, 0.1f, 0.2f, 0.8f);
-
             var O = keyObj.AddComponent<Outline>();
-            O.effectColor = keyColors[i]; O.effectDistance = new Vector2(2, -2);
-
-            var kt = T(keyObj, keyNames[i], 24, Vector2.zero, A(0, 0), A(1, 1), TextAlignmentOptions.Center);
+            O.effectColor = keyColors[i]; O.effectDistance = new Vector2(2,-2);
+            var kt = T(keyObj, keyNames[i], 24, Vector2.zero, A(0,0), A(1,1), TextAlignmentOptions.Center);
             kt.rectTransform.offsetMin = kt.rectTransform.offsetMax = Vector2.zero;
         }
 
         var tObj = new GameObject("TutTile");
         tObj.transform.SetParent(tutTrackContainer, false);
         tutTile = tObj.AddComponent<RectTransform>();
-        tutTile.anchorMin = tutTile.anchorMax = A(0.5f, 0.5f);
+        tutTile.anchorMin = tutTile.anchorMax = A(0.5f,0.5f);
         tutTile.sizeDelta = new Vector2(70, 20);
         tutTileImg = tObj.AddComponent<Image>();
         tObj.SetActive(false);
 
-        ModeButton(panel, "SKIP TUTORIAL", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -320), 0.1f, () => {
+        ModeButton(panel, "SKIP TUTORIAL", null, new Color(0.4f,0.45f,0.55f), new Vector2(0,-320), 0.1f, () => {
             if (activeTutorial != null) StopCoroutine(activeTutorial);
-
             foreach (Transform child in tutTrackContainer)
-            {
                 if (child.name == "TutTile(Clone)") Destroy(child.gameObject);
-            }
             panel.SetActive(false);
         });
 
@@ -306,55 +470,42 @@ public class MainMenuManager : MonoBehaviour
         tutTrackContainer.localRotation = Quaternion.identity;
         tutTile.sizeDelta = new Vector2(70, 20);
 
-        Color pink = new Color(1.0f, 0.05f, 0.6f);
+        Color pink   = new Color(1.0f, 0.05f, 0.6f);
         Color yellow = new Color(1.0f, 0.95f, 0.0f);
-        Color blue = new Color(0.0f, 0.85f, 1.0f);
+        Color blue   = new Color(0.0f, 0.85f, 1.0f);
 
-        // --- PHASE 1: INTRO ---
         tutInstrTxt.color = GetHDR(CYAN);
-        tutInstrTxt.text = "WELCOME TO NEON SHIFT.\n<size=24>Let's calibrate your reflexes.</size>";
+        tutInstrTxt.text  = "WELCOME TO NEON SHIFT.\n<size=24>Let's calibrate your reflexes.</size>";
         yield return new WaitForSeconds(2.5f);
 
-        // --- PHASE 2: STATIONARY HIT ---
         tutInstrTxt.text = "Notes fall down the 4 lanes.\n<color=#ff1aff>Press [D]</color> when it hits the line.";
         tutTile.gameObject.SetActive(true);
         tutTile.anchoredPosition = new Vector2(-120, 200);
         tutTileImg.color = GetHDR(pink);
 
         while (tutTile.anchoredPosition.y > -100f)
-        {
-            tutTile.anchoredPosition += Vector2.down * 300f * Time.deltaTime;
-            yield return null;
-        }
+        { tutTile.anchoredPosition += Vector2.down * 300f * Time.deltaTime; yield return null; }
         tutTile.anchoredPosition = new Vector2(-120, -100);
 
         bool hit = false;
         while (!hit)
         {
             if (Input.GetKeyDown(KeyCode.D))
-            {
-                hit = true;
-                if (sfx != null) sfx.PlayOneShot(clickSound);
-                StartCoroutine(FlashTutorialKey(0, pink));
-            }
+            { hit = true; if (sfx != null) sfx.PlayOneShot(clickSound); StartCoroutine(FlashTutorialKey(0, pink)); }
             yield return null;
         }
         tutTile.gameObject.SetActive(false);
         tutInstrTxt.text = "<color=#1aff99>PERFECT!</color>";
         yield return new WaitForSeconds(1.5f);
 
-        // --- PHASE 3: LONG HOLD TILE ---
         tutInstrTxt.text = "Some notes are long.\n<color=#ffff00>Hold [F]</color> to drain it completely.";
         tutTile.gameObject.SetActive(true);
         tutTile.sizeDelta = new Vector2(70, 200);
-        tutTileImg.color = GetHDR(yellow);
+        tutTileImg.color  = GetHDR(yellow);
         tutTile.anchoredPosition = new Vector2(-40, 250);
 
         while (tutTile.anchoredPosition.y > 0f)
-        {
-            tutTile.anchoredPosition += Vector2.down * 300f * Time.deltaTime;
-            yield return null;
-        }
+        { tutTile.anchoredPosition += Vector2.down * 300f * Time.deltaTime; yield return null; }
 
         float holdTimer = 1.5f;
         while (holdTimer > 0)
@@ -363,24 +514,23 @@ public class MainMenuManager : MonoBehaviour
             {
                 holdTimer -= Time.deltaTime;
                 float p = Mathf.Max(0, holdTimer / 1.5f);
-                tutTile.sizeDelta = new Vector2(70, 200 * p);
+                tutTile.sizeDelta        = new Vector2(70, 200 * p);
                 tutTile.anchoredPosition = new Vector2(-40, -100 + ((200 * p) / 2));
-                tutKeyImgs[1].color = GetHDR(yellow);
+                tutKeyImgs[1].color      = GetHDR(yellow);
             }
             else
             {
                 tutKeyImgs[1].color = new Color(0.1f, 0.1f, 0.2f, 0.8f);
-                tutInstrTxt.text = "<color=#ffff00>DON'T LET GO!</color>\nHold [F] to drain.";
+                tutInstrTxt.text    = "<color=#ffff00>DON'T LET GO!</color>\nHold [F] to drain.";
             }
             yield return null;
         }
         tutKeyImgs[1].color = new Color(0.1f, 0.1f, 0.2f, 0.8f);
         tutTile.gameObject.SetActive(false);
         tutTile.sizeDelta = new Vector2(70, 20);
-        tutInstrTxt.text = "<color=#1aff99>GREAT HOLD!</color>";
+        tutInstrTxt.text  = "<color=#1aff99>GREAT HOLD!</color>";
         yield return new WaitForSeconds(1.5f);
 
-        // --- PHASE 4: TRACK ROTATION ---
         tutInstrTxt.text = "<color=#ff3355>WARNING:</color> The track will rotate to the music!";
         yield return new WaitForSeconds(2f);
 
@@ -399,17 +549,15 @@ public class MainMenuManager : MonoBehaviour
             tutTile.gameObject.SetActive(true);
             tutTile.anchoredPosition = new Vector2(120, 200);
             tutTileImg.color = GetHDR(blue);
-            bool attempted = false;
+            bool attempted   = false;
 
             while (tutTile.anchoredPosition.y > -250f)
             {
                 tutTile.anchoredPosition += Vector2.down * 250f * Time.deltaTime;
-
                 if (!attempted && Input.GetKeyDown(KeyCode.K))
                 {
                     attempted = true;
                     StartCoroutine(FlashTutorialKey(3, blue));
-
                     float diff = Mathf.Abs(tutTile.anchoredPosition.y - (-100f));
                     if (diff < 35f)
                     {
@@ -419,14 +567,10 @@ public class MainMenuManager : MonoBehaviour
                         tutInstrTxt.text = "<color=#1aff99>NICE ADJUSTMENT!</color>";
                         break;
                     }
-                    else
-                    {
-                        tutInstrTxt.text = "<color=#ff3355>MISS!</color>\nWait for the line.";
-                    }
+                    else { tutInstrTxt.text = "<color=#ff3355>MISS!</color>\nWait for the line."; }
                 }
                 yield return null;
             }
-
             if (!passedMovingTest)
             {
                 if (!attempted) tutInstrTxt.text = "<color=#ff3355>MISSED IT!</color>\nTry again.";
@@ -444,7 +588,6 @@ public class MainMenuManager : MonoBehaviour
             yield return null;
         }
 
-        // --- PHASE 5: THE OVERDRIVE BARRAGE ---
         tutInstrTxt.text = "Maxing out Fever triggers <color=#ff1aff>OVERDRIVE</color>.";
         yield return new WaitForSeconds(2.5f);
 
@@ -453,7 +596,7 @@ public class MainMenuManager : MonoBehaviour
         {
             odTimer -= Time.deltaTime;
             tutInstrTxt.color = GetHDR(Color.HSVToRGB((Time.time * 3f) % 1f, 1f, 1f));
-            tutInstrTxt.text = "GET READY!";
+            tutInstrTxt.text  = "GET READY!";
             yield return null;
         }
 
@@ -462,11 +605,11 @@ public class MainMenuManager : MonoBehaviour
         float tOverdrive = 0;
         float spawnTimer = 0;
 
-        float[] tLaneX = { -120f, -40f, 40f, 120f };
+        float[] tLaneX    = { -120f, -40f, 40f, 120f };
         Color[] tKeyColors = {
             new Color(1.0f, 0.05f, 0.6f),
             new Color(1.0f, 0.95f, 0.0f),
-            new Color(0.2f, 1.0f, 0.1f),
+            new Color(0.2f, 1.0f,  0.1f),
             new Color(0.0f, 0.85f, 1.0f)
         };
 
@@ -476,63 +619,44 @@ public class MainMenuManager : MonoBehaviour
         {
             if (sfx != null) sfx.PlayOneShot(clickSound);
             StartCoroutine(FlashTutorialKey(laneIndex, color));
-
-            int hitIdx = -1;
-            float minY = 9999f;
-
+            int   hitIdx = -1;
+            float minY   = 9999f;
             for (int i = 0; i < overdriveTiles.Count; i++)
             {
-                if (Mathf.Abs(overdriveTiles[i].anchoredPosition.x - laneX) < 5f)
-                {
-                    if (overdriveTiles[i].anchoredPosition.y < minY)
-                    {
-                        minY = overdriveTiles[i].anchoredPosition.y;
-                        hitIdx = i;
-                    }
-                }
+                if (Mathf.Abs(overdriveTiles[i].anchoredPosition.x - laneX) < 5f &&
+                    overdriveTiles[i].anchoredPosition.y < minY)
+                { minY = overdriveTiles[i].anchoredPosition.y; hitIdx = i; }
             }
-
             if (hitIdx != -1 && minY < 150f)
-            {
-                Destroy(overdriveTiles[hitIdx].gameObject);
-                overdriveTiles.RemoveAt(hitIdx);
-            }
+            { Destroy(overdriveTiles[hitIdx].gameObject); overdriveTiles.RemoveAt(hitIdx); }
         }
 
         while (tOverdrive < overdriveDuration)
         {
             tOverdrive += Time.deltaTime;
             tutInstrTxt.color = GetHDR(Color.HSVToRGB((Time.time * 5f) % 1f, 1f, 1f));
-
             spawnTimer -= Time.deltaTime;
             if (spawnTimer <= 0)
             {
                 spawnTimer = 0.12f;
-                GameObject newTileObj = Instantiate(tutTile.gameObject, tutTrackContainer);
+                GameObject    newTileObj = Instantiate(tutTile.gameObject, tutTrackContainer);
                 newTileObj.SetActive(true);
-                RectTransform newTileRT = newTileObj.GetComponent<RectTransform>();
+                RectTransform newTileRT  = newTileObj.GetComponent<RectTransform>();
                 int randLane = Random.Range(0, 4);
                 newTileRT.anchoredPosition = new Vector2(tLaneX[randLane], 300);
                 newTileObj.GetComponent<Image>().color = GetHDR(Color.HSVToRGB((Time.time * 2f) % 1f, 1f, 1f));
                 overdriveTiles.Add(newTileRT);
             }
-
             for (int i = overdriveTiles.Count - 1; i >= 0; i--)
             {
                 RectTransform rt = overdriveTiles[i];
                 rt.anchoredPosition += Vector2.down * 900f * Time.deltaTime;
-                if (rt.anchoredPosition.y < -250f)
-                {
-                    Destroy(rt.gameObject);
-                    overdriveTiles.RemoveAt(i);
-                }
+                if (rt.anchoredPosition.y < -250f) { Destroy(rt.gameObject); overdriveTiles.RemoveAt(i); }
             }
-
             if (Input.GetKeyDown(KeyCode.D)) ProcessMash(0, tLaneX[0], tKeyColors[0]);
             if (Input.GetKeyDown(KeyCode.F)) ProcessMash(1, tLaneX[1], tKeyColors[1]);
             if (Input.GetKeyDown(KeyCode.J)) ProcessMash(2, tLaneX[2], tKeyColors[2]);
             if (Input.GetKeyDown(KeyCode.K)) ProcessMash(3, tLaneX[3], tKeyColors[3]);
-
             yield return null;
         }
 
@@ -540,9 +664,8 @@ public class MainMenuManager : MonoBehaviour
         overdriveTiles.Clear();
 
         tutInstrTxt.color = GetHDR(CYAN);
-        tutInstrTxt.text = "You are ready.";
+        tutInstrTxt.text  = "You are ready.";
         yield return new WaitForSeconds(2f);
-
         tutorialPanel.SetActive(false);
     }
 
@@ -554,7 +677,7 @@ public class MainMenuManager : MonoBehaviour
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // ── SETTINGS PANEL 
+    // ── SETTINGS PANEL
     // ──────────────────────────────────────────────────────────────────────────
     GameObject CreateSettingsPanel(GameObject canvasGo)
     {
@@ -563,29 +686,101 @@ public class MainMenuManager : MonoBehaviour
         var prt = panel.AddComponent<RectTransform>();
         prt.anchorMin = prt.anchorMax = A(0.5f, 0.5f);
         prt.anchoredPosition = Vector2.zero;
-        prt.sizeDelta = new Vector2(450, 480);
+        // Panel is taller than before to hold the new CALLSIGN name section
+        prt.sizeDelta = new Vector2(450, 580);
 
         var img = panel.AddComponent<Image>();
         img.color = new Color(0.05f, 0.07f, 0.11f, 0.98f);
         var outline = panel.AddComponent<Outline>();
-        outline.effectColor = CYAN;
+        outline.effectColor   = CYAN;
         outline.effectDistance = new Vector2(2, -2);
 
-        T(panel, "SETTINGS", 35, new Vector2(0, 180), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center).color = MAGENTA;
+        T(panel, "SETTINGS", 35, new Vector2(0, 225), A(0.5f,0.5f), A(0.5f,0.5f), TextAlignmentOptions.Center).color = MAGENTA;
 
+        // Volume sliders — shifted up slightly to leave room for name input below
         float savedMusic = PlayerPrefs.GetFloat("MusicVolume", 0.55f);
-        CreateSlider(panel, "MUSIC VOLUME", 80, savedMusic, (val) => {
+        CreateSlider(panel, "MUSIC VOLUME", 130, savedMusic, (val) => {
             PlayerPrefs.SetFloat("MusicVolume", val);
             if (music != null) music.volume = val;
         });
 
         float savedSfx = PlayerPrefs.GetFloat("SFXVolume", 0.8f);
-        CreateSlider(panel, "SFX VOLUME", 0, savedSfx, (val) => {
+        CreateSlider(panel, "SFX VOLUME", 45, savedSfx, (val) => {
             PlayerPrefs.SetFloat("SFXVolume", val);
             if (sfx != null) sfx.volume = val;
         });
 
-        ModeButton(panel, "HOW TO PLAY", null, MAGENTA, new Vector2(0, -90), 0.1f, () => {
+        // ── CALLSIGN NAME INPUT — beside the volume controls ──────────────────
+        // A thin divider visually groups volumes together and separates them
+        // from the name section below, giving each element its own clear space.
+        var divGo = new GameObject("Divider");
+        divGo.transform.SetParent(panel.transform, false);
+        var divRT = divGo.AddComponent<RectTransform>();
+        divRT.anchorMin = divRT.anchorMax = A(0.5f, 0.5f);
+        divRT.anchoredPosition = new Vector2(0f, -12f);
+        divRT.sizeDelta        = new Vector2(340f, 1f);
+        var divImg = divGo.AddComponent<Image>();
+        divImg.color        = new Color(CYAN.r, CYAN.g, CYAN.b, 0.18f);
+        divImg.raycastTarget = false;
+
+        T(panel, "CALLSIGN", 18, new Vector2(0, -30), A(0.5f,0.5f), A(0.5f,0.5f), TextAlignmentOptions.Center).color = CYAN;
+
+        // Input field container
+        var sniGo = new GameObject("SettingsNameInputField");
+        sniGo.transform.SetParent(panel.transform, false);
+        var sniRT = sniGo.AddComponent<RectTransform>();
+        sniRT.anchorMin = sniRT.anchorMax = A(0.5f, 0.5f);
+        sniRT.anchoredPosition = new Vector2(0f, -75f);
+        sniRT.sizeDelta        = new Vector2(300f, 44f);
+
+        var sniImg = sniGo.AddComponent<Image>();
+        sniImg.color = new Color(0.02f, 0.03f, 0.06f, 1f);
+        var sniOutline = sniGo.AddComponent<Outline>();
+        sniOutline.effectColor    = new Color(MAGENTA.r, MAGENTA.g, MAGENTA.b, 0.55f);
+        sniOutline.effectDistance = new Vector2(1f, -1f);
+
+        // Magenta left accent bar (consistent with mode-button and card style)
+        var sniAccent   = new GameObject("AccentBar");
+        sniAccent.transform.SetParent(sniGo.transform, false);
+        var sniAccentRT = sniAccent.AddComponent<RectTransform>();
+        sniAccentRT.anchorMin = new Vector2(0f, 0f);
+        sniAccentRT.anchorMax = new Vector2(0f, 1f);
+        sniAccentRT.offsetMin = new Vector2(0f,  1f);
+        sniAccentRT.offsetMax = new Vector2(4f, -1f);
+        sniAccent.AddComponent<Image>().color = MAGENTA;
+
+        var sniTextGo = new GameObject("Text");
+        sniTextGo.transform.SetParent(sniGo.transform, false);
+        var sniTextRT = sniTextGo.AddComponent<RectTransform>();
+        sniTextRT.anchorMin = Vector2.zero; sniTextRT.anchorMax = Vector2.one;
+        sniTextRT.offsetMin = new Vector2(14f, 0f); sniTextRT.offsetMax = new Vector2(-8f, 0f);
+        var sniTmp = sniTextGo.AddComponent<TextMeshProUGUI>();
+        sniTmp.fontSize  = 20;
+        sniTmp.alignment = TextAlignmentOptions.Left;
+        sniTmp.color     = MAGENTA;
+
+        settingsNameInput = sniGo.AddComponent<TMP_InputField>();
+        settingsNameInput.targetGraphic  = sniImg;
+        settingsNameInput.textComponent  = sniTmp;
+        settingsNameInput.characterLimit = 12;
+        settingsNameInput.customCaretColor = true;
+        settingsNameInput.caretColor     = MAGENTA;
+        settingsNameInput.selectionColor = new Color(MAGENTA.r, MAGENTA.g, MAGENTA.b, 0.35f);
+
+        // Pre-fill with the currently saved name
+        settingsNameInput.text = PlayerPrefs.GetString("PlayerName", "");
+
+        // Auto-save + live badge sync on every keystroke.
+        // Also keeps the name entry panel input in sync if it ever opens.
+        settingsNameInput.onValueChanged.AddListener((newVal) => {
+            PlayerPrefs.SetString("PlayerName", newVal);
+            UpdatePersistentNameDisplay(newVal);
+            if (nameInput         != null) nameInput.SetTextWithoutNotify(newVal);
+        });
+        // ── END CALLSIGN INPUT ────────────────────────────────────────────────
+
+        // Action buttons — pushed further down to fit the name section above
+        ModeButton(panel, "HOW TO PLAY", null, MAGENTA, new Vector2(0, -160), 0.1f, () => {
             panel.GetComponent<NeonPanelAnim>().Hide();
             if (tutorialPanel != null)
             {
@@ -595,7 +790,7 @@ public class MainMenuManager : MonoBehaviour
             }
         });
 
-        ModeButton(panel, "CLOSE MENU", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -160), 0.2f, () => {
+        ModeButton(panel, "CLOSE MENU", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -228), 0.2f, () => {
             panel.GetComponent<NeonPanelAnim>().Hide();
         });
 
@@ -604,7 +799,7 @@ public class MainMenuManager : MonoBehaviour
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // ── SONG SELECTION PANEL 
+    // ── SONG SELECTION PANEL
     // ──────────────────────────────────────────────────────────────────────────
     GameObject CreateSongSelectionPanel(GameObject canvasGo)
     {
@@ -618,16 +813,16 @@ public class MainMenuManager : MonoBehaviour
         var img = panel.AddComponent<Image>();
         img.color = new Color(0.05f, 0.07f, 0.11f, 0.98f);
         var outline = panel.AddComponent<Outline>();
-        outline.effectColor = CYAN;
+        outline.effectColor   = CYAN;
         outline.effectDistance = new Vector2(2, -2);
 
-        T(panel, "SELECT TRACK", 35, new Vector2(0, 240), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center).color = MAGENTA;
+        T(panel, "SELECT TRACK", 35, new Vector2(0, 240), A(0.5f,0.5f), A(0.5f,0.5f), TextAlignmentOptions.Center).color = MAGENTA;
 
         var scrollView = new GameObject("ScrollView");
         scrollView.transform.SetParent(panel.transform, false);
         var svRT = scrollView.AddComponent<RectTransform>();
         svRT.anchorMin = svRT.anchorMax = A(0.5f, 0.5f);
-        svRT.sizeDelta = new Vector2(510, 380);
+        svRT.sizeDelta        = new Vector2(510, 380);
         svRT.anchoredPosition = new Vector2(0, -20);
 
         var viewport = new GameObject("Viewport");
@@ -640,24 +835,23 @@ public class MainMenuManager : MonoBehaviour
         var content = new GameObject("Content");
         content.transform.SetParent(viewport.transform, false);
         songListContentRT = content.AddComponent<RectTransform>();
-        songListContentRT.anchorMin = new Vector2(0, 1); songListContentRT.anchorMax = new Vector2(1, 1);
-        songListContentRT.pivot = new Vector2(0.5f, 1f);
+        songListContentRT.anchorMin        = new Vector2(0,1);
+        songListContentRT.anchorMax        = new Vector2(1,1);
+        songListContentRT.pivot            = new Vector2(0.5f, 1f);
         songListContentRT.anchoredPosition = Vector2.zero;
-
-        var contentImg = content.AddComponent<Image>();
-        contentImg.color = Color.clear;
+        content.AddComponent<Image>().color = Color.clear;
 
         var sr = scrollView.AddComponent<ScrollRect>();
-        sr.viewport = vpRT;
-        sr.content = songListContentRT;
-        sr.horizontal = false;
-        sr.vertical = true;
+        sr.viewport         = vpRT;
+        sr.content          = songListContentRT;
+        sr.horizontal       = false;
+        sr.vertical         = true;
         sr.scrollSensitivity = 35f;
-        sr.movementType = ScrollRect.MovementType.Elastic;
-        sr.inertia = true;
+        sr.movementType     = ScrollRect.MovementType.Elastic;
+        sr.inertia          = true;
         sr.decelerationRate = 0.135f;
 
-        ModeButton(panel, "CANCEL", null, new Color(0.4f, 0.45f, 0.55f), new Vector2(0, -250), 0.1f, () => {
+        ModeButton(panel, "CANCEL", null, new Color(0.4f,0.45f,0.55f), new Vector2(0,-250), 0.1f, () => {
             panel.GetComponent<NeonPanelAnim>().Hide();
         });
 
@@ -668,25 +862,22 @@ public class MainMenuManager : MonoBehaviour
     void PopulateSongList(int modeIndex)
     {
         foreach (Transform child in songListContentRT.transform)
-        {
             Destroy(child.gameObject);
-        }
 
-        string targetFolder = ModeFolders[modeIndex];
+        string      targetFolder = ModeFolders[modeIndex];
         AudioClip[] loadedTracks = Resources.LoadAll<AudioClip>("Music/" + targetFolder);
 
         if (loadedTracks.Length == 0)
         {
             songListContentRT.sizeDelta = new Vector2(0, 100);
-            SongButton(songListContentRT.gameObject, "No Tracks Found!", ModeBorderColors[modeIndex], new Vector2(0, -50), 0f, () => { });
+            SongButton(songListContentRT.gameObject, "No Tracks Found!", ModeBorderColors[modeIndex], new Vector2(0,-50), 0f, () => { });
             return;
         }
 
-        float itemHeight = 55f;
-        float padding = 20f;
-
+        float itemHeight       = 55f;
+        float padding          = 20f;
         float calculatedHeight = (loadedTracks.Length * itemHeight) + padding;
-        songListContentRT.sizeDelta = new Vector2(0, calculatedHeight);
+        songListContentRT.sizeDelta        = new Vector2(0, calculatedHeight);
         songListContentRT.anchoredPosition = Vector2.zero;
 
         float startY = -itemHeight / 2f - 10f;
@@ -694,20 +885,31 @@ public class MainMenuManager : MonoBehaviour
         for (int i = 0; i < loadedTracks.Length; i++)
         {
             string songName = loadedTracks[i].name;
-            float yPos = startY - (i * itemHeight);
+            float  yPos     = startY - (i * itemHeight);
 
             SongButton(songListContentRT.gameObject, songName, ModeBorderColors[modeIndex], new Vector2(0, yPos), i * 0.05f, () => {
-                PlayerPrefs.SetString("SelectedSong", songName);
+                PlayerPrefs.SetString("SelectedSong",       songName);
                 PlayerPrefs.SetString("SelectedDifficulty", targetFolder);
+                PlayerPrefs.SetInt   ("SelectedMode",        pendingModeIndex);
+
+                // ── Name is already saved — skip the name entry panel entirely ──
+                // The player sets their callsign in the main menu settings panel.
+                // No extra interruption needed between song selection and gameplay.
+                string savedName = PlayerPrefs.GetString("PlayerName", "");
+                if (string.IsNullOrEmpty(savedName))
+                    PlayerPrefs.SetString("PlayerName", "UnknownPlayer");
 
                 if (sfx != null && clickSound != null) sfx.PlayOneShot(clickSound);
-
                 songSelectionPanel.GetComponent<NeonPanelAnim>().Hide();
-                if (nameEntryPanel != null) nameEntryPanel.GetComponent<NeonPanelAnim>().Show();
+                SceneManager.LoadScene("GameScene");
+                // ── END direct launch ─────────────────────────────────────────
             });
         }
     }
 
+    // CreateNameEntryPanel is preserved intact.
+    // It is no longer auto-triggered by song selection, but all its logic
+    // remains functional in case it is needed elsewhere.
     GameObject CreateNameEntryPanel(GameObject canvasGo)
     {
         var panel = new GameObject("NameEntryPanel");
@@ -720,10 +922,10 @@ public class MainMenuManager : MonoBehaviour
         var img = panel.AddComponent<Image>();
         img.color = new Color(0.05f, 0.07f, 0.11f, 0.98f);
         var outline = panel.AddComponent<Outline>();
-        outline.effectColor = MAGENTA;
+        outline.effectColor   = MAGENTA;
         outline.effectDistance = new Vector2(2, -2);
 
-        T(panel, "ENTER CALLSIGN", 35, new Vector2(0, 90), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center).color = CYAN;
+        T(panel, "ENTER CALLSIGN", 35, new Vector2(0, 90), A(0.5f,0.5f), A(0.5f,0.5f), TextAlignmentOptions.Center).color = CYAN;
 
         var inputGo = new GameObject("InputField");
         inputGo.transform.SetParent(panel.transform, false);
@@ -744,32 +946,38 @@ public class MainMenuManager : MonoBehaviour
         trt.offsetMin = new Vector2(15, 0); trt.offsetMax = new Vector2(-15, 0);
 
         var tmp = textGo.AddComponent<TextMeshProUGUI>();
-        tmp.fontSize = 24;
+        tmp.fontSize  = 24;
         tmp.alignment = TextAlignmentOptions.Center;
-        tmp.color = CYAN;
+        tmp.color     = CYAN;
 
         nameInput = inputGo.AddComponent<TMP_InputField>();
-        nameInput.targetGraphic = inputImg;
-        nameInput.textComponent = tmp;
+        nameInput.targetGraphic  = inputImg;
+        nameInput.textComponent  = tmp;
         nameInput.characterLimit = 12;
-
         nameInput.customCaretColor = true;
-        nameInput.caretColor = CYAN;
+        nameInput.caretColor     = CYAN;
         nameInput.selectionColor = new Color(CYAN.r, CYAN.g, CYAN.b, 0.4f);
 
         string[] prefixes = { "Neon", "Cyber", "Synth", "Byte", "Pixel", "Zero" };
         string[] suffixes = { "Rider", "Ninja", "Runner", "Ghost", "Punk", "Shift" };
-        string generatedName = prefixes[Random.Range(0, prefixes.Length)] + suffixes[Random.Range(0, suffixes.Length)] + Random.Range(10, 99);
-
+        string generatedName = prefixes[Random.Range(0, prefixes.Length)]
+                             + suffixes[Random.Range(0, suffixes.Length)]
+                             + Random.Range(10, 99);
         nameInput.text = PlayerPrefs.GetString("PlayerName", generatedName);
+
+        // Keep badge in sync if this panel is ever opened
+        nameInput.onValueChanged.AddListener((newValue) => {
+            UpdatePersistentNameDisplay(newValue);
+        });
 
         ModeButton(panel, "INITIALIZE", null, new Color(0.1f, 1f, 0.4f), new Vector2(0, -65), 0.1f, () => {
             string finalName = string.IsNullOrEmpty(nameInput.text) ? "UnknownPlayer" : nameInput.text;
             PlayerPrefs.SetString("PlayerName", finalName);
-            PlayerPrefs.SetInt("SelectedMode", pendingModeIndex);
-
+            PlayerPrefs.SetInt   ("SelectedMode", pendingModeIndex);
+            UpdatePersistentNameDisplay(finalName);
+            if (settingsNameInput != null) settingsNameInput.SetTextWithoutNotify(finalName);
+            if (topBarNameInput    != null) topBarNameInput.SetTextWithoutNotify(finalName);
             if (sfx != null && clickSound != null) sfx.PlayOneShot(clickSound);
-
             SceneManager.LoadScene("GameScene");
         });
 
@@ -794,45 +1002,43 @@ public class MainMenuManager : MonoBehaviour
         var img = go.AddComponent<Image>();
         img.color = new Color(0.08f, 0.10f, 0.13f, 0.95f);
         var outline = go.AddComponent<Outline>();
-        outline.effectColor = new Color(col.r, col.g, col.b, 0.25f);
+        outline.effectColor   = new Color(col.r, col.g, col.b, 0.25f);
         outline.effectDistance = new Vector2(1, -1);
 
-        var bar = new GameObject("Bar"); bar.transform.SetParent(go.transform, false);
-        var brt = bar.AddComponent<RectTransform>();
-        brt.anchorMin = new Vector2(0, 0f); brt.anchorMax = new Vector2(0, 1f);
-        brt.offsetMin = new Vector2(0, 1); brt.offsetMax = new Vector2(5, -1);
+        var bar  = new GameObject("Bar"); bar.transform.SetParent(go.transform, false);
+        var brt  = bar.AddComponent<RectTransform>();
+        brt.anchorMin = new Vector2(0,0f); brt.anchorMax = new Vector2(0,1f);
+        brt.offsetMin = new Vector2(0,1);  brt.offsetMax = new Vector2(5,-1);
         bar.AddComponent<Image>().color = new Color(col.r, col.g, col.b, 1f);
 
         var tgo = new GameObject("Label"); tgo.transform.SetParent(go.transform, false);
         var trt = tgo.AddComponent<RectTransform>();
         trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
-        trt.offsetMin = new Vector2(20, 0); trt.offsetMax = new Vector2(-10, 0);
-        var tmp = tgo.AddComponent<TextMeshProUGUI>();
-        tmp.text = lbl; tmp.fontSize = 16; tmp.fontStyle = FontStyles.Bold;
-        tmp.alignment = TextAlignmentOptions.Left;
-        tmp.color = Color.white;
-        tmp.overflowMode = TextOverflowModes.Ellipsis;
-        tmp.raycastTarget = false;
+        trt.offsetMin = new Vector2(20,0); trt.offsetMax = new Vector2(-10,0);
+        var tmpt = tgo.AddComponent<TextMeshProUGUI>();
+        tmpt.text = lbl; tmpt.fontSize = 16; tmpt.fontStyle = FontStyles.Bold;
+        tmpt.alignment    = TextAlignmentOptions.Left;
+        tmpt.color        = Color.white;
+        tmpt.overflowMode = TextOverflowModes.Ellipsis;
+        tmpt.raycastTarget = false;
 
         var btn = go.AddComponent<Button>(); btn.targetGraphic = img;
         btn.onClick.AddListener(cb);
-
         var cb2 = btn.colors;
-        cb2.fadeDuration = 0.1f;
-        cb2.highlightedColor = new Color(col.r * 0.2f, col.g * 0.2f, col.b * 0.2f, 0.95f);
-        cb2.pressedColor = new Color(col.r * 0.3f, col.g * 0.3f, col.b * 0.3f, 0.95f);
+        cb2.fadeDuration     = 0.1f;
+        cb2.highlightedColor = new Color(col.r*0.2f, col.g*0.2f, col.b*0.2f, 0.95f);
+        cb2.pressedColor     = new Color(col.r*0.3f, col.g*0.3f, col.b*0.3f, 0.95f);
         btn.colors = cb2;
 
         AddButtonSounds(btn);
         go.AddComponent<NeonButtonJuice>();
-
         var anim = go.AddComponent<NeonSlideInAnim>();
         anim.delay = animDelay;
     }
 
     void CreateSlider(GameObject parent, string label, float yPos, float startVal, UnityEngine.Events.UnityAction<float> onValueChanged)
     {
-        T(parent, label, 18, new Vector2(0, yPos + 30), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center).color = CYAN;
+        T(parent, label, 18, new Vector2(0, yPos + 30), A(0.5f,0.5f), A(0.5f,0.5f), TextAlignmentOptions.Center).color = CYAN;
 
         var sgo = new GameObject("Slider_" + label);
         sgo.transform.SetParent(parent.transform, false);
@@ -840,30 +1046,30 @@ public class MainMenuManager : MonoBehaviour
         srt.anchoredPosition = new Vector2(0, yPos);
         srt.sizeDelta = new Vector2(300, 25);
 
-        var bg = new GameObject("Background"); bg.transform.SetParent(sgo.transform, false);
+        var bg   = new GameObject("Background"); bg.transform.SetParent(sgo.transform, false);
         var bgrt = bg.AddComponent<RectTransform>();
         bgrt.anchorMin = Vector2.zero; bgrt.anchorMax = Vector2.one;
         bgrt.offsetMin = bgrt.offsetMax = Vector2.zero;
         var bgImg = bg.AddComponent<Image>(); bgImg.color = new Color(0.02f, 0.03f, 0.05f);
-        bg.AddComponent<Outline>().effectColor = new Color(1f, 1f, 1f, 0.2f);
+        bg.AddComponent<Outline>().effectColor = new Color(1f,1f,1f,0.2f);
 
         var fillArea = new GameObject("FillArea"); fillArea.transform.SetParent(sgo.transform, false);
-        var fart = fillArea.AddComponent<RectTransform>();
+        var fart     = fillArea.AddComponent<RectTransform>();
         fart.anchorMin = Vector2.zero; fart.anchorMax = Vector2.one;
-        fart.offsetMin = new Vector2(2, 2); fart.offsetMax = new Vector2(-2, -2);
+        fart.offsetMin = new Vector2(2,2); fart.offsetMax = new Vector2(-2,-2);
 
         var fill = new GameObject("Fill"); fill.transform.SetParent(fillArea.transform, false);
-        var frt = fill.AddComponent<RectTransform>();
+        var frt  = fill.AddComponent<RectTransform>();
         frt.anchorMin = Vector2.zero; frt.anchorMax = Vector2.one;
         frt.offsetMin = frt.offsetMax = Vector2.zero;
         fill.AddComponent<Image>().color = CYAN;
 
         var slider = sgo.AddComponent<Slider>();
         slider.targetGraphic = bgImg;
-        slider.fillRect = frt;
-        slider.minValue = 0f;
-        slider.maxValue = 1f;
-        slider.value = startVal;
+        slider.fillRect      = frt;
+        slider.minValue      = 0f;
+        slider.maxValue      = 1f;
+        slider.value         = startVal;
         slider.onValueChanged.AddListener(onValueChanged);
     }
 
@@ -879,52 +1085,50 @@ public class MainMenuManager : MonoBehaviour
         var img = go.AddComponent<Image>();
         img.color = new Color(0.08f, 0.10f, 0.13f, 0.95f);
         var outline = go.AddComponent<Outline>();
-        outline.effectColor = new Color(col.r, col.g, col.b, 0.25f);
+        outline.effectColor   = new Color(col.r, col.g, col.b, 0.25f);
         outline.effectDistance = new Vector2(1, -1);
 
-        var bar = new GameObject("Bar"); bar.transform.SetParent(go.transform, false);
-        var brt = bar.AddComponent<RectTransform>();
-        brt.anchorMin = new Vector2(0, 0f); brt.anchorMax = new Vector2(0, 1f);
-        brt.offsetMin = new Vector2(0, 1); brt.offsetMax = new Vector2(5, -1);
+        var bar  = new GameObject("Bar"); bar.transform.SetParent(go.transform, false);
+        var brt  = bar.AddComponent<RectTransform>();
+        brt.anchorMin = new Vector2(0,0f); brt.anchorMax = new Vector2(0,1f);
+        brt.offsetMin = new Vector2(0,1);  brt.offsetMax = new Vector2(5,-1);
         bar.AddComponent<Image>().color = new Color(col.r, col.g, col.b, 1f);
 
         var tgo = new GameObject("Label"); tgo.transform.SetParent(go.transform, false);
         var trt = tgo.AddComponent<RectTransform>();
         trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
-        trt.offsetMin = new Vector2(25, 0); trt.offsetMax = new Vector2(-20, 0);
+        trt.offsetMin = new Vector2(25,0); trt.offsetMax = new Vector2(-20,0);
         var tmp = tgo.AddComponent<TextMeshProUGUI>();
         tmp.text = lbl; tmp.fontSize = 18; tmp.fontStyle = FontStyles.Bold;
-        tmp.alignment = TextAlignmentOptions.Left;
+        tmp.alignment        = TextAlignmentOptions.Left;
         tmp.characterSpacing = 3f;
-        tmp.color = Color.white;
-        tmp.raycastTarget = false;
+        tmp.color            = Color.white;
+        tmp.raycastTarget    = false;
 
         if (iconSprite != null)
         {
             var igo = new GameObject("Icon"); igo.transform.SetParent(go.transform, false);
-            var irt = igo.AddComponent<RectTransform>();
-            irt.anchorMin = new Vector2(1, 0.5f); irt.anchorMax = new Vector2(1, 0.5f);
-            irt.anchoredPosition = new Vector2(-30, 0);
-            irt.sizeDelta = new Vector2(22, 22);
+            var iconRT = igo.AddComponent<RectTransform>();
+            iconRT.anchorMin = new Vector2(1,0.5f); iconRT.anchorMax = new Vector2(1,0.5f);
+            iconRT.anchoredPosition = new Vector2(-30, 0);
+            iconRT.sizeDelta = new Vector2(22, 22);
             var actualImage = igo.AddComponent<Image>();
             actualImage.sprite = iconSprite;
-            actualImage.color = col; actualImage.preserveAspect = true;
+            actualImage.color  = col; actualImage.preserveAspect = true;
             actualImage.raycastTarget = false;
         }
 
         var btn = go.AddComponent<Button>(); btn.targetGraphic = img;
         btn.onClick.AddListener(cb);
-
         var cb2 = btn.colors;
-        cb2.fadeDuration = 0.1f;
-        cb2.highlightedColor = new Color(col.r * 0.2f, col.g * 0.2f, col.b * 0.2f, 0.95f);
-        cb2.pressedColor = new Color(col.r * 0.3f, col.g * 0.3f, col.b * 0.3f, 0.95f);
+        cb2.fadeDuration     = 0.1f;
+        cb2.highlightedColor = new Color(col.r*0.2f, col.g*0.2f, col.b*0.2f, 0.95f);
+        cb2.pressedColor     = new Color(col.r*0.3f, col.g*0.3f, col.b*0.3f, 0.95f);
         btn.colors = cb2;
 
         AddButtonSounds(btn);
         go.AddComponent<NeonButtonJuice>();
-
-        var anim = go.AddComponent<NeonSlideInAnim>();
+        var anim   = go.AddComponent<NeonSlideInAnim>();
         anim.delay = animDelay;
     }
 
@@ -950,7 +1154,7 @@ public class MainMenuManager : MonoBehaviour
         rt.anchorMin = aMin; rt.anchorMax = aMax;
         rt.offsetMin = new Vector2(0, offY); rt.offsetMax = new Vector2(0, offY + height);
         var img = go.AddComponent<Image>();
-        img.color = new Color(col.r, col.g, col.b, alpha);
+        img.color        = new Color(col.r, col.g, col.b, alpha);
         img.raycastTarget = false;
     }
 
@@ -958,10 +1162,10 @@ public class MainMenuManager : MonoBehaviour
     {
         var go = new GameObject("_T"); go.transform.SetParent(p.transform, false);
         var rt = go.AddComponent<RectTransform>();
-        rt.anchorMin = aMin; rt.anchorMax = aMax;
-        rt.anchoredPosition = pos; rt.sizeDelta = new Vector2(900, 130);
+        rt.anchorMin        = aMin; rt.anchorMax = aMax;
+        rt.anchoredPosition = pos;  rt.sizeDelta = new Vector2(900, 130);
         var t = go.AddComponent<TextMeshProUGUI>();
-        t.text = txt; t.fontSize = sz; t.alignment = al; t.color = Color.white;
+        t.text          = txt; t.fontSize = sz; t.alignment = al; t.color = Color.white;
         t.raycastTarget = false;
         return t;
     }
@@ -969,13 +1173,205 @@ public class MainMenuManager : MonoBehaviour
     void AddBorder(GameObject go, Color col, float alpha)
     {
         var ov = new GameObject("Border"); ov.transform.SetParent(go.transform, false);
-        var rt = ov.AddComponent<RectTransform>(); rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
-        rt.offsetMin = new Vector2(-1, -1); rt.offsetMax = new Vector2(1, 1);
+        var rt = ov.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(-1,-1); rt.offsetMax = new Vector2(1,1);
         var img = ov.AddComponent<Image>(); img.color = Color.clear;
-        var O = go.AddComponent<Outline>(); O.effectColor = new Color(col.r, col.g, col.b, alpha); O.effectDistance = new Vector2(2, -2);
+        var O = go.AddComponent<Outline>();
+        O.effectColor = new Color(col.r, col.g, col.b, alpha); O.effectDistance = new Vector2(2,-2);
+    }
+
+    // Generates a filled circle sprite at runtime.
+    // Replaces GetBuiltinResource<Sprite>("UI/Skin/Knob.psd") which does not
+    // exist in all Unity versions.
+    static Sprite MakeCircleSprite(int size = 64)
+    {
+        var tex        = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        var pixels     = new Color[size * size];
+        float r  = size * 0.5f;
+        float cx = r - 0.5f;
+        float cy = r - 0.5f;
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            float dx    = x - cx;
+            float dy    = y - cy;
+            float alpha = Mathf.Clamp01(r - Mathf.Sqrt(dx*dx + dy*dy));
+            pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
+        }
+        tex.SetPixels(pixels);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0,0,size,size), new Vector2(0.5f,0.5f), size);
     }
 
     static Vector2 A(float x, float y) => new Vector2(x, y);
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // ── AVATAR HELPERS
+    // ──────────────────────────────────────────────────────────────────────────
+
+    // Applies the inspector-assigned sprite for slot [index] to the top-bar
+    // avatar display and saves the player's choice to PlayerPrefs.
+    void ApplyAvatar(int index)
+    {
+        if (index < 0 || index > 7) index = 0;
+        selectedAvatarIndex = index;
+        PlayerPrefs.SetInt("AvatarIndex", index);
+
+        if (avatarDisplay == null) return;
+        Sprite sp = GetAvatarSprite(index);
+        if (sp != null)
+        {
+            avatarDisplay.sprite         = sp;
+            avatarDisplay.color          = Color.white;  // show sprite as-is
+            avatarDisplay.preserveAspect = true;
+        }
+        else
+        {
+            // Slot not assigned yet — show a neutral placeholder tint
+            avatarDisplay.sprite = null;
+            avatarDisplay.color  = new Color(0.2f, 0.2f, 0.25f, 1f);
+        }
+    }
+
+    // Builds a 4×2 popup grid of the 8 inspector-assigned avatar sprites.
+    // Anchored just below the profile card. Hidden until the avatar is clicked.
+    GameObject CreateAvatarPickerPanel(GameObject canvasGo)
+    {
+        // Same circle sprite used for masking cells and the selection ring
+        var knob = MakeCircleSprite();
+
+        var panel = new GameObject("AvatarPickerPanel");
+        panel.transform.SetParent(canvasGo.transform, false);
+        var pRT = panel.AddComponent<RectTransform>();
+        pRT.anchorMin        = pRT.anchorMax = A(1f, 1f);
+        pRT.anchoredPosition = new Vector2(-177f, -80f);  // just below the profile card
+        pRT.sizeDelta        = new Vector2(168f, 96f);
+
+        var pImg = panel.AddComponent<Image>();
+        pImg.color = new Color(0.05f, 0.07f, 0.12f, 0.97f);
+        var pOutline = panel.AddComponent<Outline>();
+        pOutline.effectColor    = new Color(MAGENTA.r, MAGENTA.g, MAGENTA.b, 0.55f);
+        pOutline.effectDistance = new Vector2(1f, -1f);
+
+        // 8 avatar slots laid out in a 4 × 2 grid
+        float cellSize = 36f;
+        float gap      = 6f;
+        float startX   = 10f;
+        float startY   = -10f;
+
+        for (int i = 0; i < 8; i++)
+        {
+            int   capturedIndex = i;
+            Sprite sp           = GetAvatarSprite(i);
+
+            // ── Outer cell wrapper (holds ring + circle together) ────────
+            var cell = new GameObject("AvatarSlot_" + i);
+            cell.transform.SetParent(panel.transform, false);
+            var cRT = cell.AddComponent<RectTransform>();
+            cRT.anchorMin        = cRT.anchorMax = A(0f, 1f);
+            int col2D = i % 4;
+            int row2D = i / 4;
+            cRT.anchoredPosition = new Vector2(
+                startX + col2D * (cellSize + gap) + cellSize * 0.5f,
+                startY - row2D * (cellSize + gap) - cellSize * 0.5f
+            );
+            cRT.sizeDelta = new Vector2(cellSize, cellSize);
+
+            // Transparent bg for the Button raycasting target
+            var bgImg = cell.AddComponent<Image>();
+            bgImg.color = Color.clear;
+
+            // ── Circle mask container (child of cell) ────────────────────
+            // The Knob sprite clips everything inside to a perfect circle.
+            var circleGo = new GameObject("CircleMask");
+            circleGo.transform.SetParent(cell.transform, false);
+            var circleRT = circleGo.AddComponent<RectTransform>();
+            circleRT.anchorMin = Vector2.zero; circleRT.anchorMax = Vector2.one;
+            circleRT.offsetMin = circleRT.offsetMax = Vector2.zero;
+            var circleImg = circleGo.AddComponent<Image>();
+            circleImg.sprite         = knob;
+            circleImg.color          = new Color(0.10f, 0.12f, 0.17f, 1f);
+            circleImg.type           = Image.Type.Simple;
+            circleImg.preserveAspect = false;
+            var circleMask = circleGo.AddComponent<Mask>();
+            circleMask.showMaskGraphic = true; // dark circle bg still shows
+
+            // ── Avatar sprite inside the circle mask ─────────────────────
+            var sprGo = new GameObject("AvatarImg");
+            sprGo.transform.SetParent(circleGo.transform, false);
+            var sprRT = sprGo.AddComponent<RectTransform>();
+            sprRT.anchorMin = Vector2.zero; sprRT.anchorMax = Vector2.one;
+            sprRT.offsetMin = new Vector2(2f, 2f); sprRT.offsetMax = new Vector2(-2f, -2f);
+            var sprImg = sprGo.AddComponent<Image>();
+            if (sp != null)
+            {
+                sprImg.sprite         = sp;
+                sprImg.color          = Color.white;
+                sprImg.preserveAspect = true;
+            }
+            else
+            {
+                // Slot not yet assigned in Inspector — numbered placeholder
+                sprImg.color = new Color(0.25f, 0.25f, 0.30f, 1f);
+                var numGo = new GameObject("Num");
+                numGo.transform.SetParent(sprGo.transform, false);
+                var numRT = numGo.AddComponent<RectTransform>();
+                numRT.anchorMin = Vector2.zero; numRT.anchorMax = Vector2.one;
+                numRT.offsetMin = numRT.offsetMax = Vector2.zero;
+                var numTmp = numGo.AddComponent<TextMeshProUGUI>();
+                numTmp.text          = (i + 1).ToString();
+                numTmp.fontSize      = 14;
+                numTmp.fontStyle     = FontStyles.Bold;
+                numTmp.alignment     = TextAlignmentOptions.Center;
+                numTmp.color         = new Color(1f, 1f, 1f, 0.35f);
+                numTmp.raycastTarget = false;
+            }
+            sprImg.raycastTarget = false;
+
+            // ── Selection ring — OUTSIDE the mask so it is never clipped ──
+            // It is a sibling of CircleMask, directly on the cell.
+            var ringGo = new GameObject("SelectRing");
+            ringGo.transform.SetParent(cell.transform, false);
+            var ringRT = ringGo.AddComponent<RectTransform>();
+            ringRT.anchorMin = Vector2.zero; ringRT.anchorMax = Vector2.one;
+            ringRT.offsetMin = new Vector2(-3f, -3f); ringRT.offsetMax = new Vector2(3f, 3f);
+            var ringCircleImg = ringGo.AddComponent<Image>();
+            ringCircleImg.sprite         = knob;
+            ringCircleImg.color          = Color.clear;
+            ringCircleImg.raycastTarget  = false;
+            var ringOutline = ringGo.AddComponent<Outline>();
+            ringOutline.effectColor    = new Color(MAGENTA.r, MAGENTA.g, MAGENTA.b, 1f);
+            ringOutline.effectDistance = new Vector2(2f, -2f);
+            ringGo.SetActive(capturedIndex == selectedAvatarIndex);
+
+            // ── Button (click to select) ──────────────────────────────────
+            var btn = cell.AddComponent<Button>();
+            btn.targetGraphic = bgImg;
+            var btnColors = btn.colors;
+            btnColors.highlightedColor = new Color(1f, 1f, 1f, 0.08f);
+            btnColors.pressedColor     = new Color(1f, 1f, 1f, 0.04f);
+            btn.colors = btnColors;
+            AddButtonSounds(btn);
+            cell.AddComponent<NeonButtonJuice>();
+
+            GameObject panelRef = panel;
+            btn.onClick.AddListener(() => {
+                ApplyAvatar(capturedIndex);
+                // Refresh selection rings on all 8 cells
+                for (int r = 0; r < panelRef.transform.childCount; r++)
+                {
+                    var ring = panelRef.transform.GetChild(r).Find("SelectRing");
+                    if (ring != null) ring.gameObject.SetActive(r == capturedIndex);
+                }
+                panelRef.SetActive(false);  // close picker after selection
+            });
+        }
+
+        panel.SetActive(false);  // hidden until the avatar button is clicked
+        return panel;
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -984,41 +1380,35 @@ public class MainMenuManager : MonoBehaviour
 public class NeonSlideInAnim : MonoBehaviour
 {
     public float delay = 0f;
-    Vector2 targetPos;
-    Vector2 startOffset = new Vector2(-60f, 0f);
+    Vector2     targetPos;
+    Vector2     startOffset = new Vector2(-60f, 0f);
     CanvasGroup cg;
     RectTransform rt;
     float timer = 0f;
-    bool started = false;
+    bool  started = false;
 
     void Awake()
     {
-        cg = gameObject.AddComponent<CanvasGroup>();
+        cg       = gameObject.AddComponent<CanvasGroup>();
         cg.alpha = 0;
-        rt = GetComponent<RectTransform>();
+        rt       = GetComponent<RectTransform>();
     }
 
     void Start()
     {
-        targetPos = rt.anchoredPosition;
+        targetPos            = rt.anchoredPosition;
         rt.anchoredPosition += startOffset;
     }
 
     void Update()
     {
-        if (timer < delay)
-        {
-            timer += Time.deltaTime;
-            return;
-        }
-
-        started = true;
-        cg.alpha = Mathf.Lerp(cg.alpha, 1f, Time.deltaTime * 12f);
+        if (timer < delay) { timer += Time.deltaTime; return; }
+        started             = true;
+        cg.alpha            = Mathf.Lerp(cg.alpha, 1f, Time.deltaTime * 12f);
         rt.anchoredPosition = Vector2.Lerp(rt.anchoredPosition, targetPos, Time.deltaTime * 12f);
-
         if (cg.alpha > 0.99f && Vector2.Distance(rt.anchoredPosition, targetPos) < 0.5f)
         {
-            cg.alpha = 1f;
+            cg.alpha            = 1f;
             rt.anchoredPosition = targetPos;
             Destroy(this);
         }
@@ -1030,45 +1420,43 @@ public class NeonButtonJuice : MonoBehaviour, IPointerEnterHandler, IPointerExit
     Vector3 targetScale = Vector3.one;
     void Update() => transform.localScale = Vector3.Lerp(transform.localScale, targetScale, Time.deltaTime * 15f);
     public void OnPointerEnter(PointerEventData eventData) => targetScale = new Vector3(1.05f, 1.05f, 1f);
-    public void OnPointerExit(PointerEventData eventData) => targetScale = Vector3.one;
-    public void OnPointerDown(PointerEventData eventData) => targetScale = new Vector3(0.95f, 0.95f, 1f);
-    public void OnPointerUp(PointerEventData eventData) => targetScale = new Vector3(1.05f, 1.05f, 1f);
+    public void OnPointerExit (PointerEventData eventData) => targetScale = Vector3.one;
+    public void OnPointerDown (PointerEventData eventData) => targetScale = new Vector3(0.95f, 0.95f, 1f);
+    public void OnPointerUp   (PointerEventData eventData) => targetScale = new Vector3(1.05f, 1.05f, 1f);
 }
 
 public class NeonPanelAnim : MonoBehaviour
 {
-    bool isShowing = false;
+    bool        isShowing = false;
     CanvasGroup cg;
 
     void Awake()
     {
-        cg = gameObject.AddComponent<CanvasGroup>();
-        cg.alpha = 0;
+        cg                 = gameObject.AddComponent<CanvasGroup>();
+        cg.alpha           = 0;
         transform.localScale = Vector3.one * 0.8f;
-        cg.interactable = false;
-        cg.blocksRaycasts = false;
+        cg.interactable    = false;
+        cg.blocksRaycasts  = false;
     }
 
     void Update()
     {
         float targetAlpha = isShowing ? 1f : 0f;
         float targetScale = isShowing ? 1f : 0.9f;
-
-        cg.alpha = Mathf.Lerp(cg.alpha, targetAlpha, Time.deltaTime * 12f);
+        cg.alpha             = Mathf.Lerp(cg.alpha,             targetAlpha,            Time.deltaTime * 12f);
         transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * targetScale, Time.deltaTime * 12f);
-
         if (!isShowing && cg.alpha < 0.05f) { cg.blocksRaycasts = false; cg.interactable = false; }
-        else if (isShowing) { cg.blocksRaycasts = true; cg.interactable = true; }
+        else if (isShowing)                 { cg.blocksRaycasts = true;  cg.interactable = true;  }
     }
 
     public void Toggle() => isShowing = !isShowing;
-    public void Show() => isShowing = true;
-    public void Hide() => isShowing = false;
+    public void Show()   => isShowing  = true;
+    public void Hide()   => isShowing  = false;
 }
 
 public class NeonBreathingAnim : MonoBehaviour
 {
     Vector3 startScale;
-    void Start() => startScale = transform.localScale;
+    void Start()  => startScale          = transform.localScale;
     void Update() => transform.localScale = startScale * (1f + 0.02f * Mathf.Sin(Time.time * 2.5f));
 }

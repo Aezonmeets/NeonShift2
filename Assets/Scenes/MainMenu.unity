@@ -731,6 +731,14 @@ MonoBehaviour:
   hoverSound: {fileID: 8300000, guid: 39b2e31162217aa4a9d683fbb75e55bd, type: 3}
   clickSound: {fileID: 8300000, guid: ab8e9ca2451c54d40bf0eb683e6b6d93, type: 3}
   easyIcon: {fileID: -3893141973531030841, guid: 8817cee23cf64e34f961dbfb454d4a8c, type: 3}
+  avatar1: {fileID: -855298285791758126, guid: d764ae953794c88439c4e82957c88381, type: 3}
+  avatar2: {fileID: 9101278813714116849, guid: cb5b57fc421ac294eba75e1aeee89aea, type: 3}
+  avatar3: {fileID: 6937817954938267909, guid: 529300af23cfafa4c99d86181c0523c3, type: 3}
+  avatar4: {fileID: 4869852920943779577, guid: 34da50b482c2d9c43b6ad25c6b9ada22, type: 3}
+  avatar5: {fileID: -6470460504253458178, guid: 755262d96f4331a4c94a7081c6ebb94b, type: 3}
+  avatar6: {fileID: 1183765940114104716, guid: 32630aa4e3136d2488fb59aa2bf5563e, type: 3}
+  avatar7: {fileID: -4178046375966092550, guid: f4ef5051fce24894882d2b182f396bb3, type: 3}
+  avatar8: {fileID: -3797988067220802152, guid: 164698690b11025498fa0760c3c71bfc, type: 3}
   mediumIcon: {fileID: 5834706552959489235, guid: 37377881fd30f24469c461bd4b43f380, type: 3}
   hardIcon: {fileID: -7004678185350304794, guid: cc299e9f64a4e5e449e982957c26f60c, type: 3}
   endlessIcon: {fileID: 733204183271624202, guid: 47fe2e4808ce07242bdb0f0a7271290d, type: 3}

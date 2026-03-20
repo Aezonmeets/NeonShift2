@@ -443,6 +443,18 @@ public class GameManager : MonoBehaviour
         if (cleared) { goTitle.text = "TRACK CLEARED"; goTitle.color = GetHDR(CG); sfx.PlayOneShot(sPerfect); }
         else { goTitle.text = "GAME OVER"; goTitle.color = GetHDR(new Color(1f, .15f, .25f)); }
         goPanel.SetActive(true);
+
+        // ── SAVE SCORE TO LEADERBOARD ─────────────────────────────────────
+        // This is the only line that was missing. It submits the player's
+        // name (from PlayerPrefs), score, max combo, accuracy, and chosen
+        // avatar index so the leaderboard scene can display them.
+        LeaderboardManager.Instance.TrySubmit(
+            currentMode.ToString(),   // "Easy" / "Medium" / "Hard" / "Endless"
+            score,
+            maxCombo,
+            acc
+        );
+        // ─────────────────────────────────────────────────────────────────
     }
 
     void TogglePause()
