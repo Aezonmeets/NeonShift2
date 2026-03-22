@@ -77,6 +77,16 @@ public class GameManager : MonoBehaviour
     GameObject      feverUIContainer;
     Coroutine       resultCo;
 
+    // ── Right-side HUD ────────────────────────────────────────────────────────
+    [Header("Right Panel — Lightning Sprite")]
+    [Tooltip("Drag DiamondLightning.png here. Leave empty to use ⚡ emoji.")]
+    public Sprite   lightningSprite;
+    TextMeshProUGUI hudScoreTxt;
+    TextMeshProUGUI hudHpTxt;
+    Outline         hudDiamondOutline;
+    Image           hudDiamondGlowImg;
+    Coroutine       diamondRainbowCR;
+
     AudioSource music, sfx;
     AudioClip   sPerfect, sGood, sMiss;
 
@@ -355,6 +365,26 @@ public class GameManager : MonoBehaviour
         feverFillImg.color = GetHDR(MAGENTA); comboTxt.fontSize = 85;
         CameraShake.Instance?.Shake(0.3f, 0.15f);
         StartCoroutine(FeverDurationRoutine());
+        if (diamondRainbowCR != null) StopCoroutine(diamondRainbowCR);
+        diamondRainbowCR = StartCoroutine(DiamondRainbowLoop());
+    }
+
+    IEnumerator DiamondRainbowLoop()
+    {
+        float hue = 0f;
+        while (IsFeverActive)
+        {
+            hue = Mathf.Repeat(hue + Time.deltaTime * 1.5f, 1f);
+            if (hudDiamondOutline != null)
+            { Color rc = Color.HSVToRGB(hue,1f,1f); rc.a=1f; hudDiamondOutline.effectColor=rc; }
+            if (hudDiamondGlowImg != null)
+            { Color gc = Color.HSVToRGB(Mathf.Repeat(hue+0.15f,1f),0.8f,1f);
+              gc.a = 0.18f + 0.12f * Mathf.Sin(Time.time*4f);
+              hudDiamondGlowImg.color = gc; }
+            yield return null;
+        }
+        if (hudDiamondOutline != null) hudDiamondOutline.effectColor = new Color(CYAN.r,CYAN.g,CYAN.b,0.65f);
+        if (hudDiamondGlowImg != null) hudDiamondGlowImg.color = new Color(1f,1f,1f,0.10f);
     }
 
     IEnumerator FeverDurationRoutine()
@@ -376,6 +406,9 @@ public class GameManager : MonoBehaviour
         feverTxt.text = "FEVER"; feverTxt.color = new Color(1f, 1f, 1f, 0.7f);
         feverFillImg.color = GetHDR(CYAN); comboTxt.fontSize = 72;
         CameraShake.Instance?.Shake(0.2f, 0.1f);
+        if (diamondRainbowCR != null) { StopCoroutine(diamondRainbowCR); diamondRainbowCR = null; }
+        if (hudDiamondOutline != null) hudDiamondOutline.effectColor = new Color(CYAN.r,CYAN.g,CYAN.b,0.65f);
+        if (hudDiamondGlowImg != null) hudDiamondGlowImg.color = new Color(1f,1f,1f,0.10f);
     }
 
     public void EndLevel(bool cleared = false)
@@ -432,7 +465,6 @@ public class GameManager : MonoBehaviour
         scoreScale = Mathf.Lerp(scoreScale, 1f, Time.deltaTime * 10f);
 
         float acc = total > 0 ? (float)perfectHits / total * 100f : 100f;
-        accTxt.text   = $"{acc:F1}%";
         hpTxt.text    = "\u2665 " + (int)hp;
         comboTxt.text = combo > 1 ? "x" + combo : "";
 
@@ -440,6 +472,9 @@ public class GameManager : MonoBehaviour
             comboTxt.color = IsFeverActive
                 ? GetHDR(GetFeverRGB())
                 : Color.Lerp(CYAN, MAGENTA, Mathf.Sin(Time.time * 7f) * .5f + .5f);
+
+        if (hudScoreTxt != null) hudScoreTxt.text = ((int)displayScore).ToString("N0");
+        if (hudHpTxt    != null) hudHpTxt.text    = ((int)hp).ToString();
 
         if (feverFillRT != null && feverEnergyTxt != null)
         {
@@ -758,46 +793,218 @@ public class GameManager : MonoBehaviour
         sc.matchWidthOrHeight  = 0.5f;
         cgo.AddComponent<GraphicRaycaster>();
 
-        // HP — top-centre
-        hpTxt = T(cgo, "\u2665 100", 28, new Vector2(0, -40), A(.5f, 1), A(.5f, 1), TextAlignmentOptions.Top);
-        hpTxt.rectTransform.pivot = new Vector2(0.5f, 1);
-        hpTxt.color = new Color(1f, .35f, .55f);
+        // HP — hidden; right panel shows HP
+        hpTxt = T(cgo, "\u2665 100", 28, new Vector2(0,-40), A(.5f,1), A(.5f,1), TextAlignmentOptions.Top);
+        hpTxt.rectTransform.pivot = new Vector2(0.5f,1);
+        hpTxt.color = new Color(1f,.35f,.55f);
+        hpTxt.gameObject.SetActive(false);
 
-        // Accuracy — top-right
-        accTxt = T(cgo, "100.0%", 26, new Vector2(-40, -40), A(1, 1), A(1, 1), TextAlignmentOptions.TopRight);
-        accTxt.rectTransform.pivot = new Vector2(1, 1);
+        // Accuracy — removed from HUD
+        accTxt = T(cgo, "100.0%", 26, new Vector2(-40,-40), A(1,1), A(1,1), TextAlignmentOptions.TopRight);
+        accTxt.rectTransform.pivot = new Vector2(1,1);
         accTxt.color = CYAN;
+        accTxt.gameObject.SetActive(false);
 
-        // Combo — centre
-        comboTxt = T(cgo, "", 72, new Vector2(0, 100), A(0.5f, 0.5f), A(0.5f, 0.5f), TextAlignmentOptions.Center);
+        // Combo placeholder — reassigned below
+        comboTxt = T(cgo, "", 72, new Vector2(0,100), A(0.5f,0.5f), A(0.5f,0.5f), TextAlignmentOptions.Center);
         comboTxt.color = CYAN; comboTxt.fontStyle = FontStyles.Bold;
+        comboTxt.gameObject.SetActive(false);
 
-        // Fever bar
+        // ══════════════════════════════════════════════════════════════════════
+        // RIGHT-SIDE HUD — Group_4 design
+        // ══════════════════════════════════════════════════════════════════════
         feverUIContainer = new GameObject("FeverUIContainer");
         feverUIContainer.transform.SetParent(cgo.transform, false);
-        var fContainerRT = feverUIContainer.AddComponent<RectTransform>();
-        fContainerRT.anchorMin = Vector2.zero; fContainerRT.anchorMax = Vector2.one;
-        fContainerRT.offsetMin = fContainerRT.offsetMax = Vector2.zero;
+        var fcRT = feverUIContainer.AddComponent<RectTransform>();
+        fcRT.anchorMin = Vector2.zero; fcRT.anchorMax = Vector2.one;
+        fcRT.offsetMin = fcRT.offsetMax = Vector2.zero;
 
-        var fBG = new GameObject("FeverBG"); fBG.transform.SetParent(feverUIContainer.transform, false);
-        var fBGRt = fBG.AddComponent<RectTransform>();
-        fBGRt.anchorMin = A(1, 0.5f); fBGRt.anchorMax = A(1, 0.5f);
-        fBGRt.anchoredPosition = new Vector2(-60, 0); fBGRt.sizeDelta = new Vector2(30, 350);
-        fBG.AddComponent<Image>().color = new Color(0.1f, 0.1f, 0.2f, 0.8f);
-        AddBorder(fBG, new Color(0.5f, 0.5f, 0.6f, 0.5f), 0.3f);
+        // Root — top-right corner, holds everything EXCEPT the combo group
+        var R = new GameObject("HUD_Root");
+        R.transform.SetParent(feverUIContainer.transform, false);
+        var rRT = R.AddComponent<RectTransform>();
+        rRT.anchorMin = rRT.anchorMax = A(1f,1f);
+        rRT.pivot = A(1f,1f);
+        rRT.anchoredPosition = new Vector2(-8f,-8f);
+        rRT.sizeDelta = new Vector2(140f,700f);
 
-        var fFill = new GameObject("FeverFill"); fFill.transform.SetParent(fBG.transform, false);
-        feverFillRT = fFill.AddComponent<RectTransform>();
-        feverFillRT.anchorMin = A(0, 0); feverFillRT.anchorMax = A(1, 1);
-        feverFillRT.offsetMin = feverFillRT.offsetMax = Vector2.zero;
-        feverFillRT.pivot = new Vector2(0.5f, 0f);
-        feverFillImg = fFill.AddComponent<Image>(); feverFillImg.color = GetHDR(CYAN);
-        feverFillRT.localScale = new Vector3(1, 0, 1);
+        System.Func<string,float,float,float,GameObject> MkRow = (nm,yTop,w,h) => {
+            var g = new GameObject(nm); g.transform.SetParent(R.transform,false);
+            var r = g.AddComponent<RectTransform>();
+            r.anchorMin = r.anchorMax = A(0.5f,1f); r.pivot = A(0.5f,1f);
+            r.anchoredPosition = new Vector2(0f,-yTop); r.sizeDelta = new Vector2(w,h);
+            return g;
+        };
 
-        feverTxt = T(feverUIContainer, "FEVER", 18, new Vector2(-60, 205), A(1, 0.5f), A(1, 0.5f), TextAlignmentOptions.Center);
-        feverTxt.color = new Color(1f, 1f, 1f, 0.7f);
-        feverEnergyTxt = T(feverUIContainer, "0 / 50", 14, new Vector2(-60, -195), A(1, 0.5f), A(1, 0.5f), TextAlignmentOptions.Center);
-        feverEnergyTxt.color = Color.white;
+        // A. "SCORE" label
+        { var t = MkRow("HUD_ScoreLbl",5f,140f,20f).AddComponent<TextMeshProUGUI>();
+          t.text="SCORE"; t.fontSize=11f; t.color=CYAN;
+          t.fontStyle=FontStyles.Bold; t.alignment=TextAlignmentOptions.Center;
+          t.characterSpacing=6f; t.raycastTarget=false; }
+
+        // B. Score number
+        { var go = MkRow("HUD_ScoreVal",25f,140f,52f);
+          hudScoreTxt = go.AddComponent<TextMeshProUGUI>();
+          hudScoreTxt.text="0"; hudScoreTxt.fontSize=36f;
+          hudScoreTxt.color=Color.white; hudScoreTxt.fontStyle=FontStyles.Bold;
+          hudScoreTxt.alignment=TextAlignmentOptions.Center;
+          hudScoreTxt.enableAutoSizing=true;
+          hudScoreTxt.fontSizeMin=16f; hudScoreTxt.fontSizeMax=36f;
+          hudScoreTxt.raycastTarget=false; }
+
+        // C. Health panel — no border box
+        { var panel = MkRow("HUD_HPPanel",82f,122f,38f);
+          panel.AddComponent<Image>().color=new Color(0.07f,0.08f,0.12f,0.88f);
+
+          var hGo=new GameObject("H"); hGo.transform.SetParent(panel.transform,false);
+          var hRT=hGo.AddComponent<RectTransform>();
+          hRT.anchorMin=hRT.anchorMax=A(0.5f,0.5f);
+          hRT.anchoredPosition=new Vector2(-23f,0f); hRT.sizeDelta=new Vector2(30f,30f);
+          var ht=hGo.AddComponent<TextMeshProUGUI>();
+          ht.text="\u2665"; ht.fontSize=20f; ht.color=new Color(1f,0.22f,0.62f,1f);
+          ht.alignment=TextAlignmentOptions.Center; ht.raycastTarget=false;
+
+          var nGo=new GameObject("N"); nGo.transform.SetParent(panel.transform,false);
+          var nRT=nGo.AddComponent<RectTransform>();
+          nRT.anchorMin=nRT.anchorMax=A(0.5f,0.5f);
+          nRT.anchoredPosition=new Vector2(14f,0f); nRT.sizeDelta=new Vector2(68f,30f);
+          hudHpTxt=nGo.AddComponent<TextMeshProUGUI>();
+          hudHpTxt.text="100"; hudHpTxt.fontSize=22f; hudHpTxt.color=Color.white;
+          hudHpTxt.fontStyle=FontStyles.Bold;
+          hudHpTxt.alignment=TextAlignmentOptions.Left; hudHpTxt.raycastTarget=false; }
+
+        // D. Magenta separator
+        MkRow("HUD_Sep",124f,122f,3f).AddComponent<Image>().color=MAGENTA;
+
+        // E. Diamond + lightning
+        { var dP = MkRow("HUD_DiamondParent",125f,80f,80f);
+
+          var gGo=new GameObject("G"); gGo.transform.SetParent(dP.transform,false);
+          gGo.AddComponent<RectTransform>().sizeDelta=new Vector2(90f,90f);
+          gGo.GetComponent<RectTransform>().anchorMin=
+          gGo.GetComponent<RectTransform>().anchorMax=A(0.5f,0.5f);
+          hudDiamondGlowImg=gGo.AddComponent<Image>();
+          hudDiamondGlowImg.color=new Color(1f,1f,1f,0.10f);
+          hudDiamondGlowImg.raycastTarget=false;
+          gGo.transform.localEulerAngles=new Vector3(0f,0f,45f);
+
+          var bGo=new GameObject("B"); bGo.transform.SetParent(dP.transform,false);
+          bGo.AddComponent<RectTransform>().sizeDelta=new Vector2(56f,56f);
+          bGo.GetComponent<RectTransform>().anchorMin=
+          bGo.GetComponent<RectTransform>().anchorMax=A(0.5f,0.5f);
+          var bImg=bGo.AddComponent<Image>();
+          bImg.color=new Color(0.13f,0.15f,0.19f,1f);
+          AddBorder(bGo,CYAN,0.65f);
+          hudDiamondOutline=bGo.GetComponent<Outline>();
+          bGo.transform.localEulerAngles=new Vector3(0f,0f,45f);
+
+          var lGo=new GameObject("L"); lGo.transform.SetParent(dP.transform,false);
+          lGo.AddComponent<RectTransform>().sizeDelta=new Vector2(54f,54f);
+          lGo.GetComponent<RectTransform>().sizeDelta = new Vector2(285f, 285f);
+          lGo.GetComponent<RectTransform>().anchorMax=A(0.5f,0.5f);
+          if (lightningSprite!=null) {
+              var li=lGo.AddComponent<Image>();
+              li.sprite=lightningSprite; li.preserveAspect=true; li.raycastTarget=false;
+              bImg.color=Color.clear;
+              var ol=bGo.GetComponent<Outline>(); if(ol) ol.effectColor=Color.clear;
+              hudDiamondGlowImg.color=new Color(1f,1f,1f,0.18f);
+          } else {
+              var lt=lGo.AddComponent<TextMeshProUGUI>();
+              lt.text="\u26A1"; lt.fontSize=28f; lt.color=CYAN;
+              lt.alignment=TextAlignmentOptions.Center; lt.raycastTarget=false;
+          } }
+
+        // F. Segmented cyan bar
+        { var bc = MkRow("HUD_BarCont",208f,52f,380f);
+          var bd=new GameObject("BD"); bd.transform.SetParent(bc.transform,false);
+          var bdRT=bd.AddComponent<RectTransform>();
+          bdRT.anchorMin=Vector2.zero; bdRT.anchorMax=Vector2.one;
+          bdRT.offsetMin=bdRT.offsetMax=Vector2.zero;
+          bd.AddComponent<Image>().color=new Color(CYAN.r,CYAN.g,CYAN.b,0.18f);
+
+          var ff=new GameObject("FeverFill"); ff.transform.SetParent(bc.transform,false);
+          feverFillRT=ff.AddComponent<RectTransform>();
+          feverFillRT.anchorMin=new Vector2(0.08f,0f);
+          feverFillRT.anchorMax=new Vector2(0.92f,1f);
+          feverFillRT.offsetMin=feverFillRT.offsetMax=Vector2.zero;
+          feverFillRT.pivot=new Vector2(0.5f,0f);
+          feverFillImg=ff.AddComponent<Image>();
+          feverFillImg.color=GetHDR(CYAN);
+          feverFillRT.localScale=new Vector3(1f,0f,1f);
+
+          for(int si=0;si<16;si++) {
+              float yF=(float)(si+1)/17f;
+              var sg=new GameObject("S"+si); sg.transform.SetParent(bc.transform,false);
+              var sgRT=sg.AddComponent<RectTransform>();
+              sgRT.anchorMin=new Vector2(0.08f,yF); sgRT.anchorMax=new Vector2(0.92f,yF);
+              sgRT.sizeDelta=new Vector2(0f,2f); sgRT.anchoredPosition=Vector2.zero;
+              sg.AddComponent<Image>().color=new Color(0f,0f,0f,0.40f);
+          } }
+
+        // ── G. COMBO GROUP — number + label in ONE parent ─────────────────────
+        // The parent is anchored to the bottom of the right-side root (R).
+        // Both children use the same parent so they can NEVER drift apart.
+        {
+            // Parent group — sits at the BOTTOM of the HUD root strip
+            var comboGroup = new GameObject("HUD_ComboGroup");
+            comboGroup.transform.SetParent(R.transform, false);
+            var cgRT = comboGroup.AddComponent<RectTransform>();
+            cgRT.anchorMin = cgRT.anchorMax = A(0.5f, 0f); // bottom-centre of R
+            cgRT.pivot     = A(0.5f, 0f);
+            cgRT.anchoredPosition = new Vector2(0f, 10f);  // ← move up/down here
+            cgRT.sizeDelta = new Vector2(130f, 80f);
+
+            // Number — "x2", "x648" etc  (top half of group)
+            var numGo = new GameObject("ComboNum");
+            numGo.transform.SetParent(comboGroup.transform, false);
+            var numRT = numGo.AddComponent<RectTransform>();
+            numRT.anchorMin = new Vector2(0f, 0.35f);
+            numRT.anchorMax = Vector2.one;
+            numRT.offsetMin = numRT.offsetMax = Vector2.zero;
+            comboTxt = numGo.AddComponent<TextMeshProUGUI>();
+            comboTxt.text = "";
+            comboTxt.color = Color.white;
+            comboTxt.fontStyle = FontStyles.Bold;
+            comboTxt.alignment = TextAlignmentOptions.Center;
+            comboTxt.enableAutoSizing = true;   // scales cleanly for x2 or x648
+            comboTxt.fontSizeMin = 22f;
+            comboTxt.fontSizeMax = 52f;
+            comboTxt.raycastTarget = false;
+            numGo.SetActive(true);
+
+            // Label — "COMBO" (bottom quarter of group, right below number)
+            var lblGo = new GameObject("ComboLbl");
+            lblGo.transform.SetParent(comboGroup.transform, false);
+            var lblRT = lblGo.AddComponent<RectTransform>();
+            lblRT.anchorMin = Vector2.zero;
+            lblRT.anchorMax = new Vector2(1f, 0.35f);
+            lblRT.offsetMin = lblRT.offsetMax = Vector2.zero;
+            var lblT = lblGo.AddComponent<TextMeshProUGUI>();
+            lblT.text = "COMBO";
+            lblT.fontSize = 11f;
+            lblT.color = new Color(CYAN.r, CYAN.g, CYAN.b, 0.80f);
+            lblT.fontStyle = FontStyles.Bold;
+            lblT.alignment = TextAlignmentOptions.Center;
+            lblT.characterSpacing = 4f;
+            lblT.raycastTarget = false;
+        }
+
+        // H. Energy counter
+        { var go = MkRow("HUD_FeverEnergy",598f,140f,22f);
+          feverEnergyTxt=go.AddComponent<TextMeshProUGUI>();
+          feverEnergyTxt.text="0 / 50"; feverEnergyTxt.fontSize=11f;
+          feverEnergyTxt.color=new Color(0.60f,0.78f,0.88f,0.60f);
+          feverEnergyTxt.alignment=TextAlignmentOptions.Center;
+          feverEnergyTxt.raycastTarget=false; }
+
+        // I. feverTxt hidden
+        { var go=new GameObject("HUD_FeverHidden");
+          go.transform.SetParent(feverUIContainer.transform,false);
+          var rt=go.AddComponent<RectTransform>();
+          rt.anchorMin=rt.anchorMax=A(0f,0f);
+          rt.anchoredPosition=new Vector2(-9999f,-9999f); rt.sizeDelta=new Vector2(1f,1f);
+          feverTxt=go.AddComponent<TextMeshProUGUI>();
+          feverTxt.text="FEVER"; feverTxt.color=Color.clear; }
 
         // Result flash
         resultTxt = T(cgo, "", 44, new Vector2(0, 10), A(.5f, .5f), A(.5f, .5f), TextAlignmentOptions.Center);
